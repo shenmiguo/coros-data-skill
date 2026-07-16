@@ -1,0 +1,17 @@
+{
+  "name": "coros-data-skill",
+  "version": "1.0.0",
+  "main": "coros.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["coros", "running", "training", "codex-skill", "wearable-api"],
+  "author": "shenmiguo",
+  "license": "MIT",
+  "description": "Query COROS sports watch training data via the Training Hub API",
+  "dependencies": {
+    "axios": "^1.13.6",
+    "dotenv": "^17.3.1"
+  },
+  "type": "module"
+}
