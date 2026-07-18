@@ -153,16 +153,80 @@ export class CorosClient {
 
   // ==================== 训练计划 ====================
 
-  /** 查询训练计划列表 */
-  async fetchTrainingPlans() {
+ /** 查询训练计划列表 */
+ async fetchTrainingPlans() {
+   await this.ensureLogin();
+   const res = await this.authedAxios.post("/training/plan/query");
+   return res.data?.data;
+ }
+
+  /**
+   * 查询训练计划中的 program（课表内容）列表
+   * 每个 program 包含 exerciseBarChart 和 exercises 详细结构
+   */
+  async fetchTrainingPrograms() {
     await this.ensureLogin();
-    const res = await this.authedAxios.post("/training/plan/query");
-    return res.data?.data;
+    const res = await this.authedAxios.post("/training/program/query", {});
+    return res.data?.data || [];
   }
 
- // ==================== 综合教练查询 ====================
+  /**
+   * 查询单个 program 的完整详情（含 exercises 分段结构）
+   * @param {string} programId program ID
+   */
+  async fetchTrainingProgramDetail(programId) {
+    await this.ensureLogin();
+    const res = await this.authedAxios.post("/training/program/query", {
+      programId,
+    });
+    const programs = res.data?.data || [];
+    return programs.find((p) => p.id === programId) || programs[0] || null;
+  }
 
- /**
+  /**
+   * 生成 COROS 格式的训练计划文本（供手动导入 COROS Training Hub）
+   * 将 Daniels 训练法的周计划转为 COROS 可识别的结构化格式
+   * @param {Array} weekPlan - 周计划数组，每天一个对象 {day, type, sessions: [{distance, pace, description}]}
+   * @returns {string} 格式化的训练计划文本
+   */
+  formatWeeklyPlanForCoros(weekPlan) {
+    const lines = [];
+    lines.push("📋 COROS 训练计划（手动导入格式）\n");
+
+    for (const day of weekPlan) {
+      const dayName = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][day.dayOfWeek] || day.day;
+      lines.push(`━━━ ${dayName} ${day.date || ""} ━━━`);
+
+      if (day.type === "rest") {
+        lines.push("  休息\n");
+        continue;
+      }
+
+      for (const session of day.sessions || []) {
+        const parts = [];
+        if (session.warmup) parts.push(`热身 ${session.warmup}`);
+        if (session.mainSet) {
+          parts.push(`主体: ${session.mainSet}`);
+          if (session.intervals) {
+            for (const iv of session.intervals) {
+              parts.push(`  ${iv.distance} @ ${iv.pace}` + (iv.rest ? ` + ${iv.rest}` : ""));
+            }
+          }
+        }
+        if (session.cooldown) parts.push(`冷身 ${session.cooldown}`);
+        parts.push(`  预估 ${session.totalDistance || "--"}km`);
+        lines.push(`  [${session.type || day.type}] ${parts.join(" → ")}`);
+      }
+      lines.push("");
+    }
+
+    lines.push("💡 导入方法: COROS App → 训练 → 训练计划 → 新建计划 → 按上述内容逐天添加");
+    return lines.join("\n");
+  }
+
+// ==================== 综合教练查询 ====================
+
+/**
    * 查询单个活动的详细信息（含 lap 圈速数据）
    * @param {string} labelId 活动 ID
    * @param {number|string} sportType 运动类型（100/101/102/103）

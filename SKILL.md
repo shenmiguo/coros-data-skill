@@ -41,6 +41,9 @@ COROS_PASSWORD=<账号密码的 MD5 加密值>
 | `fetchAthleteSnapshot()` | — | 一次性综合状态报告 |
 | `fetchActivityDetail(labelId, sportType)` | 活动 ID, 运动类型 | 活动详情（含原始 lapList/summary/zoneList） |
 | `fetchActivityLaps(labelId, sportType)` | 活动 ID, 运动类型 | 圈速解析（自动分类 effort/rest，含间歇汇总） |
+| `fetchTrainingPrograms()` | — | 训练课表列表（含 exerciseBarChart） |
+| `fetchTrainingProgramDetail(programId)` | program ID | 单个课表完整详情（含 exercises 分段结构） |
+| `formatWeeklyPlanForCoros(weekPlan)` | 周计划数组 | 生成 COROS 导入格式文本（手动导入用） |
 
 ### 工具函数 (util.js)
 
@@ -82,3 +85,18 @@ console.log(snapshot.current.hrvToday, snapshot.trainingStatus.fatigue);
 | `fetch_recent.js <days> [endDate]` | 查询近期活动 |
 | `coros.js` | API 客户端库 |
 | `util.js` | 工具函数 |
+
+## COROS 训练计划数据模型
+
+训练课表 (program) 的 exercises 数组结构：
+
+| 字段 | 说明 | 示例 |
+|------|------|------|
+| exerciseType | 1=热身 2=主体(跑) 3=冷身 4=休息 | 2 |
+| targetType | 2=时间(秒) 5=距离(厘米) | 5 |
+| targetValue | 距离(cm)或时间(秒) | 200000=2km 150=150s |
+| isGroup | true 时为重复组容器 | true |
+| sets | 重复组数 | 9 |
+| groupId | 子段归属的组 ID | "xxx" |
+
+注意: 计划创建 API (/training/plan/add) 已发现但需要精确数据结构。目前建议手动导入。
