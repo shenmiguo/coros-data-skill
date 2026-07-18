@@ -44,6 +44,8 @@ COROS_PASSWORD=<账号密码的 MD5 加密值>
 | `fetchTrainingPrograms()` | — | 训练课表列表（含 exerciseBarChart） |
 | `fetchTrainingProgramDetail(programId)` | program ID | 单个课表完整详情（含 exercises 分段结构） |
 | `formatWeeklyPlanForCoros(weekPlan)` | 周计划数组 | 生成 COROS 导入格式文本（手动导入用） |
+| `createPlan(name, totalDay, dayEntries, overview)` | 名称, 天数, 每天条目, 概述 | 创建 COROS 训练计划并同步到手表 |
+| `createProgram(name, segments, overview)` | 名称, 分段数组, 描述 | 创建训练课程（返回完整 program 对象） |
 
 ### 工具函数 (util.js)
 
@@ -99,4 +101,23 @@ console.log(snapshot.current.hrvToday, snapshot.trainingStatus.fatigue);
 | sets | 重复组数 | 9 |
 | groupId | 子段归属的组 ID | "xxx" |
 
-注意: 计划创建 API (/training/plan/add) 已发现但需要精确数据结构。目前建议手动导入。
+### 计划创建 API
+
+`createPlan()` 方法已成功实现自动创建训练计划（通过逆向 COROS Training Hub 前端代码）。
+关键参数结构:
+- entities: 天映射条目 {happenDay, idInPlan, sortNoInSchedule, dayNo, exerciseBarChart}
+- programs: 完整训练课程数据数组（每个含 exercises + idInPlan）
+- versionObjects: 版本对象 {id, status: 1}
+
+示例:
+```js
+const prog = await client.createProgram('E 14km', [
+  { type: 'warmup', distanceMeters: 2000 },
+  { type: 'effort', distanceMeters: 10000 },
+  { type: 'cooldown', distanceMeters: 2000 },
+]);
+const planId = await client.createPlan('周计划', 7, [
+  { dayNo: 0, programId: prog.id },
+  { dayNo: 2, programId: anotherProg.id },
+]);
+```

@@ -224,6 +224,113 @@ export class CorosClient {
     return lines.join("\n");
   }
 
+  /**
+   * 创建 COROS 训练计划（含训练课程），自动同步到手表
+   *
+   * 关键数据结构（通过逆向 COROS Training Hub 前端代码获得）:
+   * - entities: 天映射条目 {happenDay, idInPlan, sortNoInSchedule, dayNo, exerciseBarChart}
+   * - programs: 完整训练课程数据数组（每个含 exercises + idInPlan）
+   * - versionObjects: 版本对象 {id, status: 1}
+   *
+   * @param {string} name - 计划名称
+   * @param {number} totalDay - 总天数
+   * @param {Array} dayEntries - 每天的训练数据: {dayNo, programId} 或 {dayNo, program}
+   * @param {string} [overview] - 计划概述
+   * @returns {Promise<string>} 创建的 planId
+   */
+  async createPlan(name, totalDay, dayEntries, overview = "") {
+    await this.ensureLogin();
+    const entities = [];
+    const programs = [];
+    const versionObjects = [];
+    let maxIdInPlan = 0;
+
+    for (const entry of dayEntries) {
+      const idInPlan = ++maxIdInPlan;
+      let program;
+      if (entry.programId) {
+        const progRes = await this.authedAxios.post("/training/program/query", {});
+        program = (progRes.data?.data || []).find((p) => p.id === entry.programId);
+        if (!program) throw new Error(`Program not found: ${entry.programId}`);
+      } else if (entry.program) {
+        const createRes = await this.authedAxios.post("/training/program/add", entry.program);
+        const newProgId = createRes.data?.data;
+        const progRes = await this.authedAxios.post("/training/program/query", {});
+        program = (progRes.data?.data || []).find((p) => p.id === newProgId);
+        if (!program) throw new Error("Failed to create program");
+      } else {
+        continue;
+      }
+      const prog = JSON.parse(JSON.stringify(program));
+      prog.idInPlan = idInPlan;
+      entities.push({
+        happenDay: "",
+        idInPlan,
+        sortNoInSchedule: 0,
+        dayNo: entry.dayNo,
+        exerciseBarChart: prog.exerciseBarChart || [],
+      });
+      programs.push(prog);
+      versionObjects.push({ id: idInPlan, status: 1 });
+    }
+
+    if (entities.length === 0) throw new Error("No valid training entries");
+    const maxWeeks = Math.ceil(totalDay / 7);
+    const body = {
+      name, overview, entities, programs,
+      weekStages: [], maxIdInPlan, totalDay, unit: 0,
+      sourceId: "425868142590476288",
+      sourceUrl: "https://oss.coros.com/source/source_default/0/6097a29cf17a435f88b573c08679280b.jpg",
+      minWeeks: 1, maxWeeks, region: 2, pbVersion: 9, versionObjects,
+    };
+    const res = await this.authedAxios.post("/training/plan/add", body);
+    if (res.data.result !== "0000") throw new Error(`Plan creation failed: ${res.data.message}`);
+    return res.data.data;
+  }
+
+  /**
+   * 创建训练课程 program（返回完整 program 对象）
+   * @param {string} name - 课程名称
+   * @param {Array} segments - 分段 [{type:'effort'|'warmup'|'cooldown'|'rest', distanceMeters?, durationSec?}]
+   * @param {string} [overview] - 描述
+   * @returns {Promise<object>} 完整 program 对象
+   */
+  async createProgram(name, segments, overview = "") {
+    await this.ensureLogin();
+    const exercises = [];
+    const exerciseBarChart = [];
+    let sortNo = 16777216;
+    let idx = 0;
+    for (const seg of segments) {
+      const exerciseType = { warmup: 1, effort: 2, cooldown: 3, rest: 4 }[seg.type] || 2;
+      const hasDist = seg.distanceMeters != null;
+      const targetType = hasDist ? 5 : 2;
+      const targetValue = hasDist ? Math.round(seg.distanceMeters * 100) : Math.round(seg.durationSec || 0);
+      exercises.push({
+        exerciseType, targetType, targetValue, targetDisplayUnit: hasDist ? 1 : 0,
+        sortNo, sets: 1, name: `T${3000 + idx}`, originId: seg.type === "rest" ? "3" : "2",
+        intensityType: 0, restType: 3, restValue: 0, sportType: 1, status: 1,
+        groupId: "0", isGroup: false, isDefaultAdd: 0, isIntensityPercent: false,
+        intensityPercent: 0, intensityPercentExtend: 0, intensityValue: 0,
+        intensityValueExtend: 0, exerciseKind: 0, gradeSystem: 0, hrType: 0,
+        subType: 0, animationId: 0, defaultOrder: 0, intensityCustom: 0,
+        intensityDisplayUnit: 0, intensityMultiplier: 0, onsightGradeOffset: 24,
+        packageTime: 0, sourceId: "0", sourceUrl: "", videoInfos: [], videoUrl: "",
+      });
+      exerciseBarChart.push({
+        exerciseType, targetType, targetValue, value: targetValue,
+        name: `T${3000 + idx}`, height: 5, width: Math.max(1, Math.round(targetValue / 20000)), widthFill: 0,
+      });
+      sortNo += 16777216;
+      idx++;
+    }
+    const body = { name, sportType: 1, subType: 65535, exercises, exerciseBarChart, overview };
+    const res = await this.authedAxios.post("/training/program/add", body);
+    if (res.data.result !== "0000") throw new Error(`Program creation failed: ${res.data.message}`);
+    const progRes = await this.authedAxios.post("/training/program/query", {});
+    return (progRes.data?.data || []).find((p) => p.id === res.data.data);
+  }
+
 // ==================== 综合教练查询 ====================
 
 /**
