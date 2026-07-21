@@ -289,47 +289,94 @@ export class CorosClient {
   }
 
   /**
-   * 创建训练课程 program（返回完整 program 对象）
-   * @param {string} name - 课程名称
-   * @param {Array} segments - 分段 [{type:'effort'|'warmup'|'cooldown'|'rest', distanceMeters?, durationSec?}]
-   * @param {string} [overview] - 描述
-   * @returns {Promise<object>} 完整 program 对象
+  * 创建训练课程 program（返回完整 program 对象）
+  * @param {string} name - 课程名称
+   * @param {Array} segments - 分段 [{type:'train'|'warmup'|'relax'|'rest', distanceMeters?, durationSec?}]
+   * COROS exerciseType: 1=warmup(热身) 2=train(训练) 3=relax(放松) 4=rest(休息)
+   * 别名: effort→train, cooldown→relax (向后兼容)
+  * @param {string} [overview] - 描述
+  * @returns {Promise<object>} 完整 program 对象
    */
-  async createProgram(name, segments, overview = "") {
-    await this.ensureLogin();
-    const exercises = [];
-    const exerciseBarChart = [];
-    let sortNo = 16777216;
-    let idx = 0;
-    for (const seg of segments) {
-      const exerciseType = { warmup: 1, effort: 2, cooldown: 3, rest: 4 }[seg.type] || 2;
-      const hasDist = seg.distanceMeters != null;
-      const targetType = hasDist ? 5 : 2;
-      const targetValue = hasDist ? Math.round(seg.distanceMeters * 100) : Math.round(seg.durationSec || 0);
-      exercises.push({
-        exerciseType, targetType, targetValue, targetDisplayUnit: hasDist ? 1 : 0,
-        sortNo, sets: 1, name: `T${3000 + idx}`, originId: seg.type === "rest" ? "3" : "2",
-        intensityType: 0, restType: 3, restValue: 0, sportType: 1, status: 1,
-        groupId: "0", isGroup: false, isDefaultAdd: 0, isIntensityPercent: false,
-        intensityPercent: 0, intensityPercentExtend: 0, intensityValue: 0,
-        intensityValueExtend: 0, exerciseKind: 0, gradeSystem: 0, hrType: 0,
-        subType: 0, animationId: 0, defaultOrder: 0, intensityCustom: 0,
-        intensityDisplayUnit: 0, intensityMultiplier: 0, onsightGradeOffset: 24,
-        packageTime: 0, sourceId: "0", sourceUrl: "", videoInfos: [], videoUrl: "",
-      });
-      exerciseBarChart.push({
-        exerciseType, targetType, targetValue, value: targetValue,
-        name: `T${3000 + idx}`, height: 5, width: Math.max(1, Math.round(targetValue / 20000)), widthFill: 0,
-      });
-      sortNo += 16777216;
-      idx++;
-    }
-    const body = { name, sportType: 1, subType: 65535, exercises, exerciseBarChart, overview };
-    const res = await this.authedAxios.post("/training/program/add", body);
-    if (res.data.result !== "0000") throw new Error(`Program creation failed: ${res.data.message}`);
-    const progRes = await this.authedAxios.post("/training/program/query", {});
-    return (progRes.data?.data || []).find((p) => p.id === res.data.data);
-  }
+ async createProgram(name, segments, overview = "") {
+   await this.ensureLogin();
+   const exercises = [];
+   const exerciseBarChart = [];
+   let sortNo = 16777216;
+   let idx = 0;
+   for (const seg of segments) {
+      if (seg.reps && seg.reps > 1 && seg.segments) {
+        // 重复组: 创建 isGroup=true 容器 + 子段
+        const groupId = String(2000 + idx);
+        // 容器
+        exercises.push({
+          exerciseType: 0, targetType: 0, targetValue: 0, targetDisplayUnit: 0,
+          sortNo, sets: seg.reps, name: "", originId: "0",
+          intensityType: 0, restType: 0, restValue: 0, sportType: 0, status: 1,
+          groupId: "0", isGroup: true, isDefaultAdd: 0, isIntensityPercent: false,
+          intensityPercent: 0, intensityPercentExtend: 0, intensityValue: 0,
+          intensityValueExtend: 0, exerciseKind: 0, gradeSystem: 0, hrType: 0,
+          subType: 0, animationId: 0, defaultOrder: 0, intensityCustom: 0,
+          intensityDisplayUnit: 0, intensityMultiplier: 0, onsightGradeOffset: 0,
+          packageTime: 0, sourceId: "0", sourceUrl: "", videoInfos: [], videoUrl: "",
+        });
+        sortNo += 65536; // 容器 sortNo 和子段之间的增量较小
+
+       // 子段（一个 effort + rest 对）
+       for (const sub of seg.segments) {
+         const subType = { warmup: 1, train: 2, effort: 2, relax: 3, cooldown: 3, rest: 4 }[sub.type] || 2;
+          const hasDist = sub.distanceMeters != null;
+          const subTargetType = hasDist ? 5 : 2;
+          const subTargetValue = hasDist ? Math.round(sub.distanceMeters * 100) : Math.round(sub.durationSec || 0);
+          exercises.push({
+            exerciseType: subType, targetType: subTargetType, targetValue: subTargetValue,
+            targetDisplayUnit: hasDist ? (sub.distanceMeters >= 1000 ? 2 : 1) : 0,
+            sortNo, sets: 1, name: `T${3000 + idx}`, originId: sub.type === "rest" ? "3" : "2",
+            intensityType: 0, restType: 3, restValue: 0, sportType: 1, status: 1,
+            groupId, isGroup: false, isDefaultAdd: 0, isIntensityPercent: false,
+            intensityPercent: 0, intensityPercentExtend: 0, intensityValue: 0,
+            intensityValueExtend: 0, exerciseKind: 0, gradeSystem: 0, hrType: 0,
+            subType: 0, animationId: 0, defaultOrder: 0, intensityCustom: 0,
+            intensityDisplayUnit: 0, intensityMultiplier: 0, onsightGradeOffset: 24,
+            packageTime: 0, sourceId: "0", sourceUrl: "", videoInfos: [], videoUrl: "",
+          });
+          exerciseBarChart.push({
+            exerciseType: subType, targetType: subTargetType, targetValue: subTargetValue, value: subTargetValue,
+            name: `T${3000 + idx}`, height: 5, width: Math.max(1, Math.round(subTargetValue / 20000)), widthFill: 0,
+          });
+          sortNo += 65536;
+          idx++;
+        }
+     } else {
+       // 单段
+         const exerciseType = { warmup: 1, train: 2, effort: 2, relax: 3, cooldown: 3, rest: 4 }[seg.type] || 2;
+        const hasDist = seg.distanceMeters != null;
+        const targetType = hasDist ? 5 : 2;
+        const targetValue = hasDist ? Math.round(seg.distanceMeters * 100) : Math.round(seg.durationSec || 0);
+        exercises.push({
+          exerciseType, targetType, targetValue, targetDisplayUnit: hasDist ? (seg.distanceMeters >= 1000 ? 2 : 1) : 0,
+          sortNo, sets: 1, name: `T${3000 + idx}`, originId: seg.type === "rest" ? "3" : "2",
+          intensityType: 0, restType: 3, restValue: 0, sportType: 1, status: 1,
+          groupId: "0", isGroup: false, isDefaultAdd: 0, isIntensityPercent: false,
+          intensityPercent: 0, intensityPercentExtend: 0, intensityValue: 0,
+          intensityValueExtend: 0, exerciseKind: 0, gradeSystem: 0, hrType: 0,
+          subType: 0, animationId: 0, defaultOrder: 0, intensityCustom: 0,
+          intensityDisplayUnit: 0, intensityMultiplier: 0, onsightGradeOffset: 24,
+          packageTime: 0, sourceId: "0", sourceUrl: "", videoInfos: [], videoUrl: "",
+        });
+        exerciseBarChart.push({
+          exerciseType, targetType, targetValue, value: targetValue,
+          name: `T${3000 + idx}`, height: 5, width: Math.max(1, Math.round(targetValue / 20000)), widthFill: 0,
+        });
+        sortNo += 65536;
+        idx++;
+      }
+   }
+   const body = { name, sportType: 1, subType: 65535, exercises, exerciseBarChart, overview };
+   const res = await this.authedAxios.post("/training/program/add", body);
+   if (res.data.result !== "0000") throw new Error(`Program creation failed: ${res.data.message}`);
+   const progRes = await this.authedAxios.post("/training/program/query", {});
+   return (progRes.data?.data || []).find((p) => p.id === res.data.data);
+ }
 
 // ==================== 综合教练查询 ====================
 
