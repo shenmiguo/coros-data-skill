@@ -297,14 +297,16 @@ export class CorosClient {
   * @param {string} [overview] - 描述
   * @returns {Promise<object>} 完整 program 对象
    */
- async createProgram(name, segments, overview = "") {
-   await this.ensureLogin();
-   const exercises = [];
-   const exerciseBarChart = [];
-   let sortNo = 16777216;
-   let idx = 0;
-   for (const seg of segments) {
-      if (seg.reps && seg.reps > 1 && seg.segments) {
+async createProgram(name, segments, overview = "") {
+  await this.ensureLogin();
+  const exercises = [];
+  const exerciseBarChart = [];
+  let sortNo = 16777216;
+  // COROS exercise name 按 exerciseType 固定 (来源: 前端 exerciseTypeOptions + 现有数据)
+  const nameByType = { 1: "T1120", 2: "T3001", 3: "T1122", 4: "T1123", 0: "" };
+  let idx = 0;
+  for (const seg of segments) {
+     if (seg.reps && seg.reps > 1 && seg.segments) {
         // 重复组: 创建 isGroup=true 容器 + 子段
         const groupId = String(2000 + idx);
         // 容器
@@ -327,26 +329,26 @@ export class CorosClient {
           const hasDist = sub.distanceMeters != null;
           const subTargetType = hasDist ? 5 : 2;
           const subTargetValue = hasDist ? Math.round(sub.distanceMeters * 100) : Math.round(sub.durationSec || 0);
-          exercises.push({
-            exerciseType: subType, targetType: subTargetType, targetValue: subTargetValue,
-            targetDisplayUnit: hasDist ? (sub.distanceMeters >= 1000 ? 2 : 1) : 0,
-            sortNo, sets: 1, name: `T${3000 + idx}`, originId: sub.type === "rest" ? "3" : "2",
-            intensityType: 0, restType: 3, restValue: 0, sportType: 1, status: 1,
-            groupId, isGroup: false, isDefaultAdd: 0, isIntensityPercent: false,
-            intensityPercent: 0, intensityPercentExtend: 0, intensityValue: 0,
-            intensityValueExtend: 0, exerciseKind: 0, gradeSystem: 0, hrType: 0,
-            subType: 0, animationId: 0, defaultOrder: 0, intensityCustom: 0,
-            intensityDisplayUnit: 0, intensityMultiplier: 0, onsightGradeOffset: 24,
-            packageTime: 0, sourceId: "0", sourceUrl: "", videoInfos: [], videoUrl: "",
-          });
-          exerciseBarChart.push({
-            exerciseType: subType, targetType: subTargetType, targetValue: subTargetValue, value: subTargetValue,
-            name: `T${3000 + idx}`, height: 5, width: Math.max(1, Math.round(subTargetValue / 20000)), widthFill: 0,
-          });
-          sortNo += 65536;
-          idx++;
-        }
-     } else {
+        exercises.push({
+          exerciseType: subType, targetType: subTargetType, targetValue: subTargetValue,
+          targetDisplayUnit: hasDist ? (sub.distanceMeters >= 1000 ? 2 : 1) : 0,
+          sortNo, sets: 1, name: nameByType[subType] || "T3001", originId: sub.type === "rest" ? "3" : "2",
+          intensityType: 0, restType: 3, restValue: 0, sportType: 1, status: 1,
+          groupId, isGroup: false, isDefaultAdd: 0, isIntensityPercent: false,
+          intensityPercent: 0, intensityPercentExtend: 0, intensityValue: 0,
+          intensityValueExtend: 0, exerciseKind: 0, gradeSystem: 0, hrType: 0,
+          subType: 0, animationId: 0, defaultOrder: 0, intensityCustom: 0,
+          intensityDisplayUnit: 0, intensityMultiplier: 0, onsightGradeOffset: 24,
+          packageTime: 0, sourceId: "0", sourceUrl: "", videoInfos: [], videoUrl: "",
+        });
+        exerciseBarChart.push({
+          exerciseType: subType, targetType: subTargetType, targetValue: subTargetValue, value: subTargetValue,
+          name: nameByType[subType] || "T3001", height: 5, width: Math.max(1, Math.round(subTargetValue / 20000)), widthFill: 0,
+        });
+        sortNo += 65536;
+        idx++;
+      }
+    } else {
        // 单段
          const exerciseType = { warmup: 1, train: 2, effort: 2, relax: 3, cooldown: 3, rest: 4 }[seg.type] || 2;
         const hasDist = seg.distanceMeters != null;
@@ -354,7 +356,7 @@ export class CorosClient {
         const targetValue = hasDist ? Math.round(seg.distanceMeters * 100) : Math.round(seg.durationSec || 0);
         exercises.push({
           exerciseType, targetType, targetValue, targetDisplayUnit: hasDist ? (seg.distanceMeters >= 1000 ? 2 : 1) : 0,
-          sortNo, sets: 1, name: `T${3000 + idx}`, originId: seg.type === "rest" ? "3" : "2",
+          sortNo, sets: 1, name: nameByType[exerciseType] || "T3001", originId: seg.type === "rest" ? "3" : "2",
           intensityType: 0, restType: 3, restValue: 0, sportType: 1, status: 1,
           groupId: "0", isGroup: false, isDefaultAdd: 0, isIntensityPercent: false,
           intensityPercent: 0, intensityPercentExtend: 0, intensityValue: 0,
@@ -365,7 +367,7 @@ export class CorosClient {
         });
         exerciseBarChart.push({
           exerciseType, targetType, targetValue, value: targetValue,
-          name: `T${3000 + idx}`, height: 5, width: Math.max(1, Math.round(targetValue / 20000)), widthFill: 0,
+          name: nameByType[exerciseType] || "T3001", height: 5, width: Math.max(1, Math.round(targetValue / 20000)), widthFill: 0,
         });
         sortNo += 65536;
         idx++;
@@ -422,8 +424,9 @@ export class CorosClient {
       const dist = (item.distance || 0) / 100; // cm -> m
       const time = (item.time || 0) / 100; // centiseconds -> s
       const pace = item.avgPace || 0; // s/km
-      const isEffort = pace > 0 && pace < 360 && dist > 250;
-      const isRest = pace > 500 || (dist < 150 && !isEffort);
+      // 分类基于 Daniels 配速区间: <240s/km(4:00)=effort(M/T/I/R), >360s/km(6:00)=rest, 其余=easy
+      const isEffort = pace > 0 && pace < 240 && dist > 200;
+      const isRest = pace > 360 || (dist < 200 && !isEffort);
       return {
         index: i + 1,
         distance: dist,
@@ -435,7 +438,7 @@ export class CorosClient {
         minHr: item.minHr || 0,
         avgCadence: item.avgCadence || 0,
         avgPower: item.avgPower || 0,
-        type: isEffort ? "effort" : isRest ? "rest" : "other",
+        type: isEffort ? "effort" : isRest ? "rest" : "easy",
       };
     });
 
