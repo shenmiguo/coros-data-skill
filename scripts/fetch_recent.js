@@ -29,7 +29,7 @@ function fmtDuration(sec) {
   return `${m}m${String(s).padStart(2, "0")}s`;
 }
 
-const sportMap = { 100: "户外跑", 101: "室内跑", 102: "越野", 103: "跑步机" };
+const sportMap = { 100: "户外跑", 101: "室内跑", 102: "越野跑", 103: "操场跑" };
 
 const client = new CorosClient(process.env.COROS_ACCOUNT, process.env.COROS_PASSWORD);
 await client.login();
