@@ -37,7 +37,7 @@ export async function sendMail({ to, subject, text, html }) {
   const transporter = createTransporter();
   const user = process.env.QQ_MAIL_USER;
   const info = await transporter.sendMail({
-    from: `"COROS 教练 <${user}>"`,
+    from: `"COROS 教练" <${user}>`,
     to,
     subject,
     text,
