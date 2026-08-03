@@ -4,6 +4,9 @@ import { generateBriefingHTML, assessLight } from "/Users/jedyi/.codex/skills/co
 import { sendBriefingEmail } from "/Users/jedyi/.codex/skills/coros-data-skill/scripts/send_email.js";
 
 // ---- Config ----
+// 支持 --preview 参数：只生成 HTML 预览文件，不发邮件
+const PREVIEW_ONLY = process.argv.includes("--preview");
+
 const WEEK_LABEL = process.argv[2] || "W10 第1天";
 const WEEK_GOAL_KM = parseInt(process.argv[3] || "93");
 
@@ -173,6 +176,15 @@ const html = generateBriefingHTML(data);
 // Text fallback for non-HTML clients
 const textBriefing = `${data.dateStr} ${data.weekday} 训练简报\n\n今日: ${todayKm}km 负荷${todayLoad}\n恢复: ${cur.recoveryPct}% HRV ${hrvToday} RHR ${cur.rhr}\n明日: I 6×1km @ 3'13-3'17\n详见HTML邮件`;
 
+// 保存预览（无论是否发邮件都保存，方便随时查看）
+import { writeFileSync } from "node:fs";
+writeFileSync("/Users/jedyi/Documents/Coach/.briefing_preview.html", html);
+
+if (PREVIEW_ONLY) {
+  console.log("Preview saved (no email sent).");
+  process.exit(0);
+}
+
 import { sendMail } from "/Users/jedyi/.codex/skills/coros-data-skill/scripts/send_email.js";
 try {
   const id2 = await sendMail({
@@ -185,8 +197,3 @@ try {
 } catch (e) {
   console.log("EMAIL_HTML_SKIPPED:", e.message);
 }
-
-// Save HTML for preview
-import { writeFileSync } from "node:fs";
-writeFileSync("/Users/jedyi/Documents/Coach/.briefing_preview.html", html);
-console.log("Preview saved.");
