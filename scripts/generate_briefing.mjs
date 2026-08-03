@@ -97,13 +97,13 @@ const wdMap = {};
 for (const w of wd) wdMap[w.date] = parseFloat(w.distance);
 const weekTotal = Object.values(wdMap).reduce((a, b) => a + b, 0);
 
-// W10 周计划：按 Wesley 框架「周三单堂强度课 + 周日LSD」排布
+// W10 周计划：周三 T-I 阶梯课 + 周日LSD（已同步COROS手表）
 const weekPlan = [
-  { day: "周一 8/3", plan: "E 10km 恢复", actual: `${todayKm}km E ✓`, status: "done" },
-  { day: "周二 8/4", plan: "E 12km + strides", actual: "待执行", status: "pending" },
-  { day: "周三 8/5", plan: "I 6×1km@I (本周强度课)", actual: "待执行", status: "pending" },
+  { day: "周一 8/3", plan: "E 12km + 力量A", actual: `${todayKm}km E ✓`, status: "done" },
+  { day: "周二 8/4", plan: "E 10km + strides", actual: "待执行", status: "pending" },
+  { day: "周三 8/5", plan: "T-I阶梯 3km+2×2km+3×1km", actual: "待执行", status: "pending" },
   { day: "周四 8/6", plan: "E 10km", actual: "待执行", status: "pending" },
-  { day: "周五 8/7", plan: "E 12km", actual: "待执行", status: "pending" },
+  { day: "周五 8/7", plan: "E 12km + 力量B", actual: "待执行", status: "pending" },
   { day: "周六 8/8", plan: "E 8km + strides", actual: "待执行", status: "pending" },
   { day: "周日 8/9", plan: "L 25km + 4km@M", actual: "待执行", status: "pending" },
 ];
@@ -153,21 +153,21 @@ const data = {
   goal: `东营马拉松 <b>2:32:00</b>（VDOT 62→65）。速度底座阶段 W10，VDOT 63。有氧 ${cur.aerobicEnduranceScore || "--"} / 无氧 ${cur.anaerobicCapacityScore || "--"} / 阈值 ${cur.lactateThresholdScore || "--"}。`,
   tomorrow: {
     date: "周二 8/4",
-    type: "🏃‍♂️ E 12km + 6×100m strides",
+    type: "🏃‍♂️ E 10km + 6×100m strides",
     details: [
-      { label: "配速区间", val: "4'25-5'00 /km", cls: "" },
+      { label: "配速区间", val: "4'25-4'45 /km", cls: "" },
       { label: "心率上限", val: "严格 <148 bpm", cls: "warn" },
       { label: "strides", val: "6×100m @ 3'01-3'05", cls: "pace-fast" },
-      { label: "距离", val: "~12km", cls: "" },
+      { label: "距离", val: "~10km", cls: "" },
     ],
     notes: [
-      "周日28km后的恢复日，心率是唯一准绳",
-      "strides 放最后，快跑不冲心率，重在跑姿",
-      "周三（8/5）才是本周 I 课：6×1km@3'13-3'17",
-      "本周就一堂强度课（周三 I），别再加量",
+      "周三才是重头戏：T-I阶梯课（3km+2×2km+3×1km）",
+      "周二把腿溜开，strides 重在跑姿不冲心率",
+      "力量A今天做了吗？没做的话明天补不了",
+      "E日控距，别再超量，把配额留给周三",
     ],
   },
-  quote: "今天 E 恢复跑做对了——周日28km后周一就该是E。周三才是 I 课的正位，之前连续顺延是排课失误。本周严格按「周三强度课 + 周日LSD」框架走。",
+  quote: "今天E恢复跑做对了。周三的T-I阶梯课是本周硬骨头——3km入T、2km压T冲I、1km全力I。计划已同步手表，照着跑。",
 };
 
 // ---- Generate & send ----
