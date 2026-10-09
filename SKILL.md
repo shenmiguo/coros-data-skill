@@ -101,6 +101,38 @@ console.log(snapshot.current.hrvToday, snapshot.trainingStatus.fatigue);
 | sets | 重复组数 | 9 |
 | groupId | 子段归属的组 ID | "xxx" |
 
+### 分段配速与心率目标
+
+`createProgram()` 支持给距离/时间分段写入 COROS 结构化目标：
+
+```js
+await client.createProgram("柴古50K 700分策略", [
+  {
+    type: "train",
+    distanceMeters: 12990,
+    paceSec: [280, 300],        // 4:40-5:00/km
+    thresholdPaceSec: 231,      // 可选，用于写 COROS 的百分比字段
+  },
+  {
+    type: "train",
+    distanceMeters: 9760,
+    paceSec: [440, 470],        // 7:20-7:50/km
+  },
+  {
+    type: "train",
+    durationSec: 1800,
+    hrBpm: [145, 158],
+  },
+]);
+```
+
+字段映射：
+
+- `paceSec: [faster, slower]`：目标配速区间，单位为秒/公里；COROS `intensityType=3`。
+- `hrBpm: [lower, upper]`：目标心率区间，单位为 bpm；COROS `intensityType=2`。
+- 距离分段使用 `intensityMultiplier=1000`，时间分段使用 `intensityMultiplier=0`。
+- `thresholdPaceSec` 是当前阈值配速的秒/公里值；传入后同步百分比字段，不传则只写绝对配速。
+
 ### 计划创建 API
 
 `createPlan()` 方法已成功实现自动创建训练计划（通过逆向 COROS Training Hub 前端代码）。

@@ -45,6 +45,51 @@ function fmtDate(yyyymmdd) {
   return `${s.slice(4, 6)}/${s.slice(6, 8)}`;
 }
 
+function buildIntensityFields(segment, hasDistanceTarget) {
+  if (Array.isArray(segment.paceSec) && segment.paceSec.length === 2) {
+    const [first, second] = segment.paceSec;
+    const fasterPaceSec = Math.min(first, second);
+    const slowerPaceSec = Math.max(first, second);
+    const multiplier = hasDistanceTarget ? 1000 : 1;
+    return {
+      intensityType: 3,
+      intensityDisplayUnit: hasDistanceTarget ? 1 : 0,
+      intensityMultiplier: hasDistanceTarget ? 1000 : 0,
+      intensityValue: fasterPaceSec * multiplier,
+      intensityValueExtend: slowerPaceSec * multiplier,
+      intensityPercent: segment.thresholdPaceSec
+        ? Math.round((segment.thresholdPaceSec / fasterPaceSec) * 100000)
+        : 0,
+      intensityPercentExtend: segment.thresholdPaceSec
+        ? Math.round((segment.thresholdPaceSec / slowerPaceSec) * 100000)
+        : 0,
+    };
+  }
+
+  if (Array.isArray(segment.hrBpm) && segment.hrBpm.length === 2) {
+    const [lowerBpm, upperBpm] = segment.hrBpm;
+    return {
+      intensityType: 2,
+      intensityDisplayUnit: 0,
+      intensityMultiplier: 0,
+      intensityValue: Math.min(lowerBpm, upperBpm),
+      intensityValueExtend: Math.max(lowerBpm, upperBpm),
+      intensityPercent: 0,
+      intensityPercentExtend: 0,
+    };
+  }
+
+  return {
+    intensityType: 0,
+    intensityDisplayUnit: 0,
+    intensityMultiplier: 0,
+    intensityValue: 0,
+    intensityValueExtend: 0,
+    intensityPercent: 0,
+    intensityPercentExtend: 0,
+  };
+}
+
 // ==================== CorosClient 类 ====================
 
 export class CorosClient {
@@ -291,7 +336,7 @@ export class CorosClient {
   /**
   * 创建训练课程 program（返回完整 program 对象）
   * @param {string} name - 课程名称
-   * @param {Array} segments - 分段 [{type:'train'|'warmup'|'relax'|'rest', distanceMeters?, durationSec?}]
+   * @param {Array} segments - 分段 [{type:'train'|'warmup'|'relax'|'rest', distanceMeters?, durationSec?, paceSec?: [faster, slower], hrBpm?: [lower, upper], thresholdPaceSec?}]
    * COROS exerciseType: 1=warmup(热身) 2=train(训练) 3=relax(放松) 4=rest(休息)
    * 别名: effort→train, cooldown→relax (向后兼容)
   * @param {string} [overview] - 描述
@@ -333,13 +378,14 @@ async createProgram(name, segments, overview = "") {
           exerciseType: subType, targetType: subTargetType, targetValue: subTargetValue,
           targetDisplayUnit: hasDist ? (sub.distanceMeters >= 1000 ? 2 : 1) : 0,
           sortNo, sets: 1, name: nameByType[subType] || "T3001", originId: sub.type === "rest" ? "3" : "2",
-          intensityType: 0, restType: 3, restValue: 0, sportType: 1, status: 1,
+          restType: 3, restValue: 0, sportType: 1, status: 1,
           groupId, isGroup: false, isDefaultAdd: 0, isIntensityPercent: false,
           intensityPercent: 0, intensityPercentExtend: 0, intensityValue: 0,
           intensityValueExtend: 0, exerciseKind: 0, gradeSystem: 0, hrType: 0,
           subType: 0, animationId: 0, defaultOrder: 0, intensityCustom: 0,
           intensityDisplayUnit: 0, intensityMultiplier: 0, onsightGradeOffset: 24,
           packageTime: 0, sourceId: "0", sourceUrl: "", videoInfos: [], videoUrl: "",
+          ...buildIntensityFields(sub, hasDist),
         });
         exerciseBarChart.push({
           exerciseType: subType, targetType: subTargetType, targetValue: subTargetValue, value: subTargetValue,
@@ -357,13 +403,14 @@ async createProgram(name, segments, overview = "") {
         exercises.push({
           exerciseType, targetType, targetValue, targetDisplayUnit: hasDist ? (seg.distanceMeters >= 1000 ? 2 : 1) : 0,
           sortNo, sets: 1, name: nameByType[exerciseType] || "T3001", originId: seg.type === "rest" ? "3" : "2",
-          intensityType: 0, restType: 3, restValue: 0, sportType: 1, status: 1,
+          restType: 3, restValue: 0, sportType: 1, status: 1,
           groupId: "0", isGroup: false, isDefaultAdd: 0, isIntensityPercent: false,
           intensityPercent: 0, intensityPercentExtend: 0, intensityValue: 0,
           intensityValueExtend: 0, exerciseKind: 0, gradeSystem: 0, hrType: 0,
           subType: 0, animationId: 0, defaultOrder: 0, intensityCustom: 0,
           intensityDisplayUnit: 0, intensityMultiplier: 0, onsightGradeOffset: 24,
           packageTime: 0, sourceId: "0", sourceUrl: "", videoInfos: [], videoUrl: "",
+          ...buildIntensityFields(seg, hasDist),
         });
         exerciseBarChart.push({
           exerciseType, targetType, targetValue, value: targetValue,
