@@ -151,40 +151,33 @@ def same_workout(a, b, max_gap_s):
 
 def dedupe(records, max_gap_s):
     records = sorted(records, key=lambda r: r["start_utc"])
-    n = len(records)
-    parent = list(range(n))
-
-    def find(i):
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    def union(i, j):
-        ri, rj = find(i), find(j)
-        if ri != rj:
-            parent[rj] = ri
-
-    for i in range(n):
-        for j in range(i + 1, n):
-            gap = parse_ts(records[j]["start_utc"]) - parse_ts(records[i]["start_utc"])
-            same_source = records[i]["source"] == records[j]["source"]
-            # Same-source duplicates (double upload) share the exact start second;
-            # distinct same-device sessions start at least tens of seconds apart.
-            if same_source and gap > timedelta(0):
-                break
-            if not same_source and gap > timedelta(seconds=max_gap_s):
-                break
-            a, b = records[i], records[j]
-            if a["sport"] != b["sport"]:
-                continue
-            if same_workout(a, b, 0 if same_source else max_gap_s):
-                union(i, j)
-
-    groups = {}
+    ts = [parse_ts(r["start_utc"]) for r in records]
+    groups = []
+    max_gap = timedelta(seconds=max_gap_s)
     for i, rec in enumerate(records):
-        groups.setdefault(find(i), []).append(rec)
-    return list(groups.values())
+        placed = False
+        for g in groups:
+            # Anchor rule: every member must sit within max_gap of the group's
+            # earliest start, so chains of consecutive reps never fuse together.
+            if ts[i] - g["anchor"] > max_gap:
+                continue
+            for m in g["members"]:
+                gap = abs(ts[i] - parse_ts(m["start_utc"]))
+                if m["source"] == rec["source"]:
+                    # Same-source duplicates (double upload) share the exact start.
+                    if gap == timedelta(0) and same_workout(m, rec, 0):
+                        g["members"].append(rec)
+                        placed = True
+                        break
+                elif gap <= max_gap and same_workout(m, rec, max_gap_s):
+                    g["members"].append(rec)
+                    placed = True
+                    break
+            if placed:
+                break
+        if not placed:
+            groups.append({"anchor": ts[i], "members": [rec]})
+    return [g["members"] for g in groups]
 
 
 def priority_index(source):
@@ -304,7 +297,7 @@ def main():
     p_args.add_argument("--report-limit", type=int, default=50)
     p_args.add_argument("--no-coros", action="store_true")
     p_args.add_argument("--no-garmin", action="store_true")
-    p_args.add_argument("--gap-seconds", type=int, default=180, help="跨设备同场活动最大起始时间差")
+    p_args.add_argument("--gap-seconds", type=int, default=60, help="跨设备同场活动最大起始时间差")
     args = p_args.parse_args()
 
     start, end = window(args)

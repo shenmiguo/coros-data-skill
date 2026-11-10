@@ -63,13 +63,24 @@ await client.login();
 
 const size = 100;
 let page = 1;
+let emptyRetries = 0;
 const rows = [];
 while (true) {
-  const res = await client.authedAxios.get(
-    `/activity/query?modeList=${modes}&pageNumber=${page}&size=${size}` +
-      `&startDay=${ymd(start)}&endDay=${ymd(end)}`,
-  );
-  const list = res.data?.data?.dataList || [];
+  let list = [];
+  try {
+    const res = await client.authedAxios.get(
+      `/activity/query?modeList=${modes}&pageNumber=${page}&size=${size}` +
+        `&startDay=${ymd(start)}&endDay=${ymd(end)}`,
+    );
+    list = res.data?.data?.dataList || [];
+  } catch {
+    // transient API failure: fall through to the empty-page retry below
+  }
+  if (list.length === 0 && emptyRetries < 2) {
+    emptyRetries += 1;
+    await new Promise((r) => setTimeout(r, 1000));
+    continue;
+  }
   rows.push(...list);
   if (list.length < size || page >= 200) break;
   page += 1;
