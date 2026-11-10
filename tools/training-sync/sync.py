@@ -219,6 +219,62 @@ def priority_index(source):
     return order.index(source) if source in order else len(order)
 
 
+METRIC_TOLERANCES = {
+    "duration_s": 0.02,
+    "distance_m": 0.01,
+    "avg_hr": 2,
+    "max_hr": 2,
+    "load": 0.01,
+    "calories": 0.05,
+}
+
+
+def metrics_agree(field, left, right):
+    if left is None or right is None:
+        return False
+    tolerance = METRIC_TOLERANCES[field]
+    if field in ("avg_hr", "max_hr"):
+        return abs(left - right) <= tolerance
+    if min(left, right) <= 0:
+        return False
+    return rel_diff(left, right) <= tolerance
+
+
+def consensus_value(members, field):
+    """Prefer a cross-source consensus over a single-source outlier."""
+    values = []
+    seen_sources = set()
+    for member in sorted(members, key=lambda item: priority_index(item["source"])):
+        source = member["source"]
+        value = member.get(field)
+        if value is None or source in seen_sources:
+            continue
+        seen_sources.add(source)
+        values.append((source, value))
+
+    if not values:
+        return None
+
+    clusters = []
+    for source, value in values:
+        cluster = next(
+            (item for item in clusters if metrics_agree(field, item[0][1], value)),
+            None,
+        )
+        if cluster is None:
+            clusters.append([(source, value)])
+        else:
+            cluster.append((source, value))
+
+    largest = max(len(cluster) for cluster in clusters)
+    if largest == 1:
+        return values[0][1]
+    return min(
+        (cluster for cluster in clusters if len(cluster) == largest),
+        key=lambda cluster: priority_index(cluster[0][0]),
+    )[0][1]
+
+
 def build_canonical(groups):
     canonical = []
     for members in groups:
@@ -231,7 +287,9 @@ def build_canonical(groups):
             {"source": m["source"], "source_id": m["source_id"], "start_utc": m["start_utc"]}
             for m in sorted(members, key=lambda r: r["start_utc"])
         ]
-        for field in ("duration_s", "distance_m", "avg_hr", "max_hr", "load", "calories", "device"):
+        for field in ("duration_s", "distance_m", "avg_hr", "max_hr", "load", "calories"):
+            merged[field] = consensus_value(members, field)
+        for field in ("device",):
             if merged.get(field) is None:
                 for m in members[1:]:
                     if m.get(field) is not None:

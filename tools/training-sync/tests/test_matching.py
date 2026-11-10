@@ -280,5 +280,38 @@ class CrossSourceMatchingTests(unittest.TestCase):
         )
 
 
+class CanonicalMetricTests(unittest.TestCase):
+    def member(self, source, source_id, distance_m, duration_s):
+        return {
+            "source": source,
+            "source_id": source_id,
+            "start_utc": "2026-10-24T22:34:29Z",
+            "distance_m": distance_m,
+            "duration_s": duration_s,
+        }
+
+    def test_consensus_wins_over_primary_source_outlier(self):
+        members = [
+            self.member("coros", "c", 1374.09, 1221),
+            self.member("garmin_cn", "cn", 1374.09, 533.89),
+            self.member("garmin_intl", "intl", 1374.09, 533.89),
+        ]
+
+        canonical = sync.build_canonical([members])[0]
+
+        self.assertEqual(533.89, canonical["duration_s"])
+        self.assertEqual("coros", canonical["primary_source"])
+
+    def test_primary_source_wins_without_cross_source_consensus(self):
+        members = [
+            self.member("coros", "c", 1374.09, 1221),
+            self.member("garmin_cn", "cn", 1374.09, 533.89),
+        ]
+
+        canonical = sync.build_canonical([members])[0]
+
+        self.assertEqual(1221, canonical["duration_s"])
+
+
 if __name__ == "__main__":
     unittest.main()

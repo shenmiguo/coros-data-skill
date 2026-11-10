@@ -17,6 +17,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from sports import sports_compatible
+
 ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "data" / "activities.db"
 COROS_SOURCE = ROOT / "sources" / "coros_source.mjs"
@@ -75,7 +77,14 @@ def find_duplicate_candidates(
             original_id = numeric_id(original.get("source_id"))
             if original_id is None or original_id >= imported_id:
                 continue
-            if imported.get("sport") != original.get("sport"):
+            has_distance = bool(
+                imported.get("distance_m") and original.get("distance_m")
+            )
+            if not sports_compatible(
+                imported.get("sport"),
+                original.get("sport"),
+                allow_strength_cardio=not has_distance,
+            ):
                 continue
             original_start = parse_ts(original["start_utc"])
             if abs((imported_start - original_start).total_seconds()) > max_gap_s:

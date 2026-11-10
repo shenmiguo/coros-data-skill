@@ -101,6 +101,48 @@ class CorosDuplicateCleanupTests(unittest.TestCase):
 
         self.assertEqual([(imported, original)], pairs)
 
+    def test_matches_strength_imported_as_cardio_by_duration(self):
+        original = activity(
+            "479659590798049579",
+            "2026-08-16T08:45:09Z",
+            distance_m=0,
+            device="COROS APEX 2 Pro",
+            sport="strength",
+            duration_s=1298,
+        )
+        imported = activity(
+            "481655265603649939",
+            "2026-08-16T08:45:09Z",
+            distance_m=0,
+            device=None,
+            sport="cardio",
+            duration_s=1298,
+        )
+
+        pairs = find_duplicate_candidates([imported, original])
+
+        self.assertEqual([(imported, original)], pairs)
+
+    def test_does_not_treat_run_and_cardio_as_conversion(self):
+        original = activity(
+            "479659590798049580",
+            "2026-08-16T08:45:09Z",
+            distance_m=0,
+            device="COROS APEX 2 Pro",
+            sport="run",
+            duration_s=1298,
+        )
+        imported = activity(
+            "481655265603649940",
+            "2026-08-16T08:45:09Z",
+            distance_m=0,
+            device=None,
+            sport="cardio",
+            duration_s=1298,
+        )
+
+        self.assertEqual([], find_duplicate_candidates([imported, original]))
+
     def test_ignores_records_before_import_id_floor(self):
         original = activity(
             "470000000000000001",
