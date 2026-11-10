@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Pulls running activities from the existing coros-data-skill and prints
-// a normalized JSON array on stdout. No skill files are modified.
+// Pulls activities from the existing coros-data-skill and prints a normalized
+// JSON array on stdout. All sports are fetched unless --modes is supplied.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -30,10 +30,42 @@ function ymd(date) {
   return `${y}${m}${d}`;
 }
 
-const RUN_MODES = new Set([100, 101, 102, 103]);
+const SPORT_TYPE_MAP = new Map([
+  [100, "run"],
+  [101, "run"],
+  [102, "run"],
+  [103, "run"],
+  [104, "hike"],
+  [200, "bike"],
+  [400, "cardio"],
+  [402, "strength"],
+  [900, "walk"],
+  [901, "jump_rope"],
+  [902, "stair_climb"],
+  [9901, "stair_climb"],
+  [10001, "multisport"],
+]);
 
 function classify(sportType) {
-  return RUN_MODES.has(sportType) ? "run" : `other-${sportType}`;
+  return SPORT_TYPE_MAP.get(Number(sportType)) || `other-${sportType}`;
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function loginWithRetry(client, attempts = 3) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await client.login();
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) await sleep(attempt * 1000);
+    }
+  }
+  throw lastError;
 }
 
 loadEnvFile(path.join(SKILL_DIR, ".env"));
@@ -45,7 +77,7 @@ if (!process.env.COROS_ACCOUNT || !process.env.COROS_PASSWORD) {
 
 const endArg = arg("end");
 const startArg = arg("start");
-const modes = arg("modes", "100,101,102,103");
+const modes = arg("modes");
 
 const end = endArg ? new Date(`${endArg}T23:59:59`) : new Date();
 const start = startArg ? new Date(`${startArg}T00:00:00`) : new Date(end);
@@ -59,31 +91,71 @@ const client = new CorosClient(
   process.env.COROS_ACCOUNT,
   process.env.COROS_PASSWORD,
 );
-await client.login();
+await loginWithRetry(client);
 
 const size = 100;
-let page = 1;
-let emptyRetries = 0;
+const CHUNK_DAYS = 180;
 const rows = [];
-while (true) {
-  let list = [];
-  try {
-    const res = await client.authedAxios.get(
-      `/activity/query?modeList=${modes}&pageNumber=${page}&size=${size}` +
-        `&startDay=${ymd(start)}&endDay=${ymd(end)}`,
-    );
-    list = res.data?.data?.dataList || [];
-  } catch {
-    // transient API failure: fall through to the empty-page retry below
+const seen = new Set();
+
+function addDays(date, days) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+// Wide date ranges make the COROS API intermittently return empty pages.
+// Query in <=180-day chunks so each query stays small and pagination is stable.
+let chunkStart = new Date(start);
+while (chunkStart <= end) {
+  const chunkEnd = new Date(
+    Math.min(addDays(chunkStart, CHUNK_DAYS - 1).getTime(), end.getTime()),
+  );
+  let page = 1;
+  while (true) {
+    let list = null;
+    let requestError = null;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const params = new URLSearchParams({
+        pageNumber: String(page),
+        size: String(size),
+        startDay: ymd(chunkStart),
+        endDay: ymd(chunkEnd),
+      });
+      if (modes) params.set("modeList", modes);
+      try {
+        const res = await client.authedAxios.get(
+          `/activity/query?${params.toString()}`,
+        );
+        if (res.data?.result !== "0000") {
+          throw new Error(
+            `${res.data?.result || "unknown"} ${res.data?.message || ""}`.trim(),
+          );
+        }
+        list = res.data?.data?.dataList || [];
+      } catch (error) {
+        requestError = error;
+      }
+      if (list !== null && list.length > 0) break;
+      if (attempt < 3) await sleep(800 * (attempt + 1));
+    }
+    if (list === null) {
+      throw new Error(
+        `COROS query failed for ${ymd(chunkStart)}-${ymd(chunkEnd)} ` +
+          `page ${page}: ${requestError?.message || "unknown error"}`,
+      );
+    }
+    for (const a of list) {
+      const id = String(a.labelId);
+      if (!seen.has(id)) {
+        seen.add(id);
+        rows.push(a);
+      }
+    }
+    if (list.length < size || page >= 50) break;
+    page += 1;
   }
-  if (list.length === 0 && emptyRetries < 2) {
-    emptyRetries += 1;
-    await new Promise((r) => setTimeout(r, 1000));
-    continue;
-  }
-  rows.push(...list);
-  if (list.length < size || page >= 200) break;
-  page += 1;
+  chunkStart = addDays(chunkEnd, 1);
 }
 
 const records = rows.map((a) => ({

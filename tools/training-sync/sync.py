@@ -10,6 +10,8 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from sports import sports_compatible
+
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 OUT_DIR = ROOT / "out"
@@ -93,7 +95,15 @@ def fetch_sources(args, start, end):
     python_bin = str(venv_python) if venv_python.exists() else sys.executable
     if not args.no_coros:
         records += run_source(
-            ["node", str(ROOT / "sources" / "coros_source.mjs"), "--start", start, "--end", end],
+            [
+                "node",
+                str(ROOT / "sources" / "coros_source.mjs"),
+                "--all-sports",
+                "--start",
+                start,
+                "--end",
+                end,
+            ],
             {},
             "coros",
         )
@@ -134,19 +144,37 @@ def rel_diff(x, y):
 
 
 def same_workout(a, b, max_gap_s):
+    if not sports_compatible(a.get("sport"), b.get("sport")):
+        return False
     gap = abs((parse_ts(a["start_utc"]) - parse_ts(b["start_utc"])).total_seconds())
     if gap > max_gap_s:
         return False
-    signals = []
     da, db = a.get("distance_m"), b.get("distance_m")
-    if da and db and min(da, db) > 200:
-        signals.append(rel_diff(da, db) <= 0.08)
     ta, tb = a.get("duration_s"), b.get("duration_s")
-    if ta and tb and min(ta, tb) > 30:
-        signals.append(abs(ta - tb) <= 30 or rel_diff(ta, tb) <= 0.10)
-    if not signals:
+    has_distance = bool(da and db and min(da, db) > 200)
+    has_duration = bool(ta and tb and min(ta, tb) > 30)
+    if not has_distance and not has_duration:
         return gap <= 60
-    return all(signals)
+
+    distance_strong = has_distance and rel_diff(da, db) <= 0.02
+    # COROS can retain a different elapsed duration for the same imported
+    # workout. An exact start plus distance/no-distance is stronger evidence
+    # than duration and is also needed for strength/cardio activities.
+    duration_close = has_duration and (
+        abs(ta - tb) <= 30 or rel_diff(ta, tb) <= 0.10
+    )
+    if gap <= 5 and (not has_distance or distance_strong or duration_close):
+        return True
+
+    distance_close = has_distance and rel_diff(da, db) <= 0.08
+    distance_plausible = has_distance and rel_diff(da, db) <= 0.20
+    duration_plausible = has_duration and rel_diff(ta, tb) <= 0.25
+    if has_distance and has_duration:
+        return (
+            (distance_close and duration_plausible)
+            or (duration_close and distance_plausible)
+        )
+    return distance_close or duration_close
 
 
 def dedupe(records, max_gap_s):

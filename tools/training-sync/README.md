@@ -2,14 +2,27 @@
 
 打通 COROS、Garmin 国际（garmin.com）、Garmin 国行（garmin.com.cn）三个账号的运动活动数据，
 跨设备去重后输出统一的活动列表。COROS 复用现有 `coros-data-skill`（不修改 skill 本身），
-Garmin 走社区库 `garminconnect`（`is_cn=True/False` 切换国行/国际）。
+Garmin 走社区库 `garminconnect`（`is_cn=True/False` 切换国行/国际）。当前默认拉取
+全部运动类型，不只跑步。COROS 源脚本另外支持 `--modes 100,101,102,103`，
+可按 COROS 模式编号缩小查询范围；`sync.py` 默认拉取全部模式。
+
+本目录包含以下独立工具：
+
+- `sync.py`：从三个账号拉取历史/增量数据并去重，输出 SQLite/JSON；
+- `push_cn_history.py`：把 Garmin 国行历史回传到 Garmin 国际和 COROS；
+- `reconcile_coros_import.py`：对已提交但部分失败的 COROS ZIP 导入做现场核对和补记账；
+- `cleanup_coros_duplicates.py`：审计并清理本工具造成的 COROS 重复活动；
+- `import_to_coros.mjs` / `delete_coros_activities.mjs`：底层网页接口工具，不建议手动直接调用。
 
 ## 配置
 
 ```bash
-cd training-sync
-cp .env.example .env
+cd /path/to/coros-data-skill
+cp tools/training-sync/.env.example tools/training-sync/.env
 # 填入两个 Garmin 账号；COROS 自动读取 skill 自带的 scripts/.env
+python3 -m venv tools/training-sync/.venv
+tools/training-sync/.venv/bin/pip install -r tools/training-sync/requirements.txt
+npm install
 ```
 
 首次运行 Garmin 登录后，OAuth token 会缓存在 `data/tokens/<source>/`，
@@ -19,29 +32,101 @@ cp .env.example .env
 
 ```bash
 # 合并最近 30 天（默认窗口），输出去重报告 + SQLite + JSON
-python3 sync.py
+tools/training-sync/.venv/bin/python tools/training-sync/sync.py
 
 # 回溯历史数据：最近 N 年（首次运行会分页拉取全部历史）
-python3 sync.py --years 3
+tools/training-sync/.venv/bin/python tools/training-sync/sync.py --years 3
+
+# 回溯固定历史窗口（建议三源都使用同一起点）
+tools/training-sync/.venv/bin/python tools/training-sync/sync.py \
+  --start 2023-01-01 --end 2026-11-10
 
 # 或指定精确窗口（COROS 按日期范围直查；Garmin 从最新往回翻页到窗口起点）
-python3 sync.py --start 2023-01-01 --end 2024-12-31
+tools/training-sync/.venv/bin/python tools/training-sync/sync.py \
+  --start 2023-01-01 --end 2024-12-31
 
 # 指定窗口与起始时间差阈值
-python3 sync.py --days 90 --end 2026-11-10 --gap-seconds 180
+tools/training-sync/.venv/bin/python tools/training-sync/sync.py \
+  --days 90 --end 2026-11-10 --gap-seconds 180
 ```
 
 只有配置了账号的源才会拉取；例如暂时只填 COROS 也能跑通，Garmin 会提示跳过。
 历史回填与增量同步写的是同一张 SQLite 表：同一活动的重复拉取会按
 `(source, source_id)` upsert，不会产生重复行；换窗口重跑也只是更新对应数据。
 
+## Garmin 国行回传
+
+```bash
+# 先预演：只显示 Garmin 国际缺少多少条，不写远端
+tools/training-sync/.venv/bin/python tools/training-sync/push_cn_history.py \
+  --years 3 --dry-run
+
+# 同时检查国际区和 COROS；两边都为 0 才表示历史回填完成
+tools/training-sync/.venv/bin/python tools/training-sync/push_cn_history.py \
+  --start 2023-01-01 --dry-run --push-coros
+
+# 国行 -> 国际；同时导出 COROS 缺少的 FIT/TCX 并自动批量导入 COROS
+tools/training-sync/.venv/bin/python tools/training-sync/push_cn_history.py \
+  --years 3 \
+  --delay 1.5 \
+  --push-coros \
+  --export-fit-dir data/fit_for_coros
+
+# 只导出 COROS 缺少的文件，不自动导入
+tools/training-sync/.venv/bin/python tools/training-sync/push_cn_history.py \
+  --years 3 \
+  --no-push \
+  --export-fit-dir data/fit_for_coros
+```
+
+回传是幂等的：
+
+- 国行活动如果已经出现在国际区，或已记录在 `push_uploads` 表，会跳过；
+- COROS 侧先按全运动类型、开始时间、距离/时长重新匹配，已存在的活动不会导出；
+- 一个 ZIP 批量导入成功后，批次内每个国行 `activityId` 都写入 `push_uploads`，
+  再次运行不会重复导入。
+
+COROS 导入接口只返回批次级 `errorSize`，不返回失败文件名。脚本在部分失败时会重新拉取
+COROS 现场数据，把确认出现的文件写入台账；未出现的文件保留在该 ZIP 和批报告中，
+不会盲目把整批文件再次上传。若需要恢复已经中断的历史批次：
+
+```bash
+# 只读核对；--import-id 使用 COROS 返回的批次 ID
+tools/training-sync/.venv/bin/python tools/training-sync/reconcile_coros_import.py \
+  --zip data/coros_import_zips/<batch>.zip \
+  --import-id <coros-import-id>
+
+# 确认无误后，把已出现在 COROS 的文件写入台账
+tools/training-sync/.venv/bin/python tools/training-sync/reconcile_coros_import.py \
+  --zip data/coros_import_zips/<batch>.zip \
+  --import-id <coros-import-id> \
+  --execute
+```
+
+国行 FIT 通过 `download_activity(..., ORIGINAL)` 获取时实际是 ZIP 包装，脚本会先提取
+内部 FIT。COROS 官方要求单文件至少 20 KB，因此小 FIT 会自动改下 TCX；TCX 仍不足
+20 KB 时会在报告中列为失败，不会伪装成可导入文件。
+
+COROS 没有公开的上传 API。`import_to_coros.mjs` 复用了 COROS 网页当前的
+STS -> 阿里云 OSS -> `/activity/fit/import` 流程，按 ZIP 批量导入并轮询任务状态。
+该流程属于网页接口，COROS 更新后可能需要调整。自动导入失败时，可继续使用已经
+导出的文件，在 COROS 网页或 App 中批量选择 `.fit` / `.tcx` 手动导入。
+
 ## 去重规则
 
 两条不同源的活动会被判为同一场训练，需要同时满足：
 
-1. 运动类型一致（run 对 run），起始时间差不超过 `--gap-seconds`（默认 60s，
+1. 运动类型兼容；跑步的户外跑、操场跑、越野跑、室内跑统一归为 `run`，
+   骑行、力量、室内有氧、徒步、步行、爬楼等也使用统一规范标签。Garmin 的泛化
+   `other` 只有在起点和距离/时长给出强证据时才允许匹配具体 COROS 运动；
+   起始时间差不超过 `--gap-seconds`（默认 60s，
    且必须落在该组最早记录的 60s 锚点窗口内，避免连续间歇的传递性误并）；
-2. 距离都存在时相对误差 ≤ 8%，或时长都存在时差值 ≤ 30s / 相对误差 ≤ 10%。
+2. 起点完全一致（≤ 5s）时，距离误差 ≤ 2%、时长差 ≤ 30s/10%，或无距离指标，
+   即可视为强匹配；这可处理 COROS 对同一场训练保存的 elapsed duration 与 Garmin
+   不同的情况；
+3. 起点略有偏差时，距离和时长都存在时采用双信号容错：距离误差 ≤ 8% 且时长误差
+   ≤ 25%，或时长差 ≤ 30s/10% 且距离误差 ≤ 20%；
+4. 只有一个指标可比时，距离要求误差 ≤ 8%，时长要求差 ≤ 30s/10%。
 
 同源（同一账号）记录只在起始时间完全相同、且距离/时长匹配时合并，
 对应"同一活动被重复上传"的情况；同一手表相邻的独立训练（例如田径场
@@ -54,10 +139,33 @@ python3 sync.py --days 90 --end 2026-11-10 --gap-seconds 180
 
 - `out/merged_activities.json`：去重后的规范活动列表（含 `source_refs` 溯源）
 - `data/activities.db`：SQLite 明细表，`group_id` 关联同一场训练的多条源记录
+- `data/activities.db` 的 `push_uploads`：跨目标上传台账，避免重复写远端
+- `data/fit_for_coros/`：COROS 缺少活动的 FIT/TCX 中间文件
 - stdout：终端报告（日期/距离/时长/配速/心率/负荷/来源）
+
+## COROS 重复清理
+
+COROS 的批量导入接口不会自动去重。若历史批次曾经导入过同一活动，先只读审计：
+
+```bash
+tools/training-sync/.venv/bin/python tools/training-sync/cleanup_coros_duplicates.py \
+  --start 2023-01-01 --end 2026-11-10
+```
+
+默认会查找“新 ID、无设备、且能找到更早的设备记录”的高置信度重复项，同时支持
+跑步距离匹配和不带距离的力量/有氧时长匹配。确认报告中的候选后再执行：
+
+```bash
+tools/training-sync/.venv/bin/python tools/training-sync/cleanup_coros_duplicates.py \
+  --start 2023-01-01 --end 2026-11-10 \
+  --execute --max-delete 200
+```
+
+工具默认最多删除 200 条，并会同时清理对应上传台账；删除属于远端写操作，先看
+`data/coros_duplicate_cleanup_*.json` 报告。
 
 ## 后续扩展
 
 - 生理指标（HRV/RHR/睡眠/恢复）可按同样的"源适配器 + 按日期去重"模式扩展；
-- 若需要上传/回写（例如 COROS 活动导入 Garmin），可在源适配器上加 FIT 导出 +
-  `garminconnect` 的 upload 接口，但上传属于写操作，建议默认关闭。
+- 可继续增加 COROS -> Garmin 的反向 FIT 导出与上传；
+- 可在同步任务末尾加入自动增量回传，但首次历史回填仍建议人工观察一次日志。

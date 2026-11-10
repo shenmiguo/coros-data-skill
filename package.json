@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Personal sports-data toolbox: COROS skill SDK + standalone tools",
   "dependencies": {
+    "ali-oss": "^6.23.0",
     "axios": "^1.13.6",
     "dotenv": "^17.3.1",
     "nodemailer": "^9.0.3"

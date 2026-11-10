@@ -8,16 +8,15 @@ import sys
 from datetime import datetime, timezone
 from getpass import getpass
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from garminconnect import Garmin
 
-RUN_TYPE_KEYS = {
-    "running",
-    "trail_running",
-    "track_running",
-    "treadmill_running",
-    "virtual_run",
-}
+TOOL_DIR = Path(__file__).resolve().parents[1]
+if str(TOOL_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOL_DIR))
+
+from sports import classify_garmin
 
 
 def parse_args():
@@ -30,10 +29,6 @@ def parse_args():
     return p.parse_args()
 
 
-def classify(type_key: str) -> str:
-    return "run" if type_key in RUN_TYPE_KEYS else f"other-{type_key}"
-
-
 def parse_gmt(value: str) -> datetime:
     return datetime.strptime(value, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
 
@@ -44,7 +39,7 @@ def normalize(a: dict, label: str) -> dict:
     return {
         "source": label,
         "source_id": str(a["activityId"]),
-        "sport": classify(type_key),
+        "sport": classify_garmin(type_key),
         "raw_sport": type_key,
         "start_utc": start.isoformat().replace("+00:00", "Z"),
         "duration_s": a.get("duration"),
@@ -82,8 +77,11 @@ def main() -> int:
         client.login()
         client.garth.dump(str(tokenstore))
 
-    start_dt = datetime.fromisoformat(args.start + "T00:00:00").astimezone()
-    end_dt = datetime.fromisoformat(args.end + "T23:59:59").astimezone()
+    local_tz = ZoneInfo("Asia/Shanghai")
+    start_dt = datetime.fromisoformat(args.start + "T00:00:00").replace(
+        tzinfo=local_tz
+    )
+    end_dt = datetime.fromisoformat(args.end + "T23:59:59").replace(tzinfo=local_tz)
 
     fetched = []
     index = 0
@@ -100,9 +98,7 @@ def main() -> int:
     records = [
         normalize(a, args.label or ("garmin_cn" if args.cn else "garmin_intl"))
         for a in fetched
-        if start_dt.replace(tzinfo=timezone.utc)
-        <= parse_gmt(a["startTimeGMT"])
-        <= end_dt.replace(tzinfo=timezone.utc)
+        if start_dt <= parse_gmt(a["startTimeGMT"]) <= end_dt
     ]
     print(json.dumps(records, ensure_ascii=False, indent=2))
     return 0
