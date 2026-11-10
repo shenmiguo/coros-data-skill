@@ -279,6 +279,29 @@ class CrossSourceMatchingTests(unittest.TestCase):
             [{member["source_id"] for member in group} for group in groups],
         )
 
+    def test_same_source_tiny_zero_distance_orphan_merges(self):
+        records = [
+            normalized(
+                "coros",
+                "main",
+                "2024-07-18T11:24:07Z",
+                distance_m=0,
+                duration_s=16,
+            ),
+            normalized(
+                "coros",
+                "fragment",
+                "2024-07-18T11:23:36Z",
+                distance_m=0,
+                duration_s=4,
+            ),
+        ]
+
+        groups = sync.dedupe(records, 60)
+
+        self.assertEqual(1, len(groups))
+        self.assertEqual({"main", "fragment"}, {r["source_id"] for r in groups[0]})
+
 
 class CanonicalMetricTests(unittest.TestCase):
     def member(self, source, source_id, distance_m, duration_s):

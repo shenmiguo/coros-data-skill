@@ -43,6 +43,15 @@ CREATE TABLE IF NOT EXISTS source_activities (
     PRIMARY KEY (source, source_id)
 );
 CREATE INDEX IF NOT EXISTS idx_activities_start ON source_activities(start_utc);
+CREATE TABLE IF NOT EXISTS activity_links (
+  source TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  target TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  linked_at TEXT NOT NULL,
+  evidence TEXT NOT NULL,
+  PRIMARY KEY (source, source_id, target)
+);
 """
 
 
@@ -183,23 +192,92 @@ def same_workout(a, b, max_gap_s):
     return distance_close or duration_close
 
 
-def dedupe(records, max_gap_s):
-    records = sorted(records, key=lambda r: r["start_utc"])
+def load_activity_links():
+    if not DB_PATH.exists():
+        return set()
+    con = sqlite3.connect(DB_PATH)
+    con.execute(
+        """CREATE TABLE IF NOT EXISTS activity_links (
+             source TEXT NOT NULL,
+             source_id TEXT NOT NULL,
+             target TEXT NOT NULL,
+             target_id TEXT NOT NULL,
+             linked_at TEXT NOT NULL,
+             evidence TEXT NOT NULL,
+             PRIMARY KEY (source, source_id, target)
+           )"""
+    )
+    links = {
+        tuple(str(value) for value in row)
+        for row in con.execute(
+            "SELECT source, source_id, target, target_id FROM activity_links"
+        )
+    }
+    con.close()
+    return links
+
+
+def records_are_linked(left, right, links):
+    keys = {
+        (
+            str(left["source"]), str(left["source_id"]),
+            str(right["source"]), str(right["source_id"]),
+        ),
+        (
+            str(right["source"]), str(right["source_id"]),
+            str(left["source"]), str(left["source_id"]),
+        ),
+    }
+    return bool(links.intersection(keys))
+
+
+def record_is_linked(record, links):
+    identity = (str(record["source"]), str(record["source_id"]))
+    return any(key[:2] == identity or key[2:] == identity for key in links)
+
+
+def dedupe(records, max_gap_s, links=None):
+    links = links or set()
+    records = sorted(
+        records,
+        key=lambda r: (not record_is_linked(r, links), r["start_utc"]),
+    )
     ts = [parse_ts(r["start_utc"]) for r in records]
     groups = []
     max_gap = timedelta(seconds=max_gap_s)
     for i, rec in enumerate(records):
         placed = False
         for g in groups:
+            linked_member = next(
+                (
+                    m for m in g["members"]
+                    if records_are_linked(m, rec, links)
+                ),
+                None,
+            )
+            if linked_member is not None:
+                g["members"].append(rec)
+                g["linked"] = True
+                placed = True
+                break
             # Anchor rule: every member must sit within max_gap of the group's
             # earliest start, so chains of consecutive reps never fuse together.
-            if ts[i] - g["anchor"] > max_gap:
+            # Garmin can preserve the upload link but move an imported activity
+            # by many hours. A group containing a forced link may therefore be
+            # extended only through the normal gap and metric checks below.
+            group_is_linked = g.get("linked", False)
+            if ts[i] - g["anchor"] > max_gap and not group_is_linked:
                 continue
             for m in g["members"]:
                 gap = abs(ts[i] - parse_ts(m["start_utc"]))
                 if m["source"] == rec["source"]:
                     # Same-source duplicates (double upload) share the exact start.
-                    if gap == timedelta(0) and same_workout(m, rec, 0):
+                    tiny_orphan = (
+                        gap <= max_gap
+                        and not (rec.get("distance_m") or m.get("distance_m"))
+                        and min(rec.get("duration_s") or 0, m.get("duration_s") or 0) <= 5
+                    )
+                    if (gap == timedelta(0) and same_workout(m, rec, 0)) or tiny_orphan:
                         g["members"].append(rec)
                         placed = True
                         break
@@ -210,7 +288,7 @@ def dedupe(records, max_gap_s):
             if placed:
                 break
         if not placed:
-            groups.append({"anchor": ts[i], "members": [rec]})
+            groups.append({"anchor": ts[i], "members": [rec], "linked": False})
     return [g["members"] for g in groups]
 
 
@@ -394,7 +472,7 @@ def main():
 
     start, end = window(args)
     records = fetch_sources(args, start, end)
-    groups = dedupe(records, args.gap_seconds)
+    groups = dedupe(records, args.gap_seconds, links=load_activity_links())
     canonical = build_canonical(groups)
 
     update_db(records, canonical)

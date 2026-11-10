@@ -4,6 +4,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SKILL_DIR =
@@ -53,9 +54,69 @@ function looksLikeFit(data) {
     afterHeader.equals(magicOld);
 }
 
-function cacheName(record) {
+function looksLikeGpx(data) {
+  return data.subarray(0, 256).includes("<gpx");
+}
+
+function cacheName(record, extension) {
   const start = String(record.start_utc).replace(/[-:]/g, "").replace(/\..*Z$/, "");
-  return `${start}_${String(record.source_id).replace(/[^A-Za-z0-9._-]/g, "_")}.fit`;
+  return `${start}_${String(record.source_id).replace(/[^A-Za-z0-9._-]/g, "_")}.${extension}`;
+}
+
+function extractFitFromZip(zipData, cacheDir, token) {
+  const zipPath = path.join(cacheDir, `.coros-${token}.zip`);
+  fs.writeFileSync(zipPath, zipData);
+  try {
+    const listing = execFileSync("unzip", ["-Z1", zipPath], {
+      encoding: "utf8",
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    const fitName = listing
+      .split(/\r?\n/)
+      .find((name) => name.trim().toLowerCase().endsWith(".fit"));
+    if (!fitName) throw new Error("COROS ZIP contains no FIT entry");
+    const fit = execFileSync("unzip", ["-p", zipPath, fitName.trim()], {
+      maxBuffer: 128 * 1024 * 1024,
+    });
+    if (!looksLikeFit(fit)) {
+      throw new Error("COROS ZIP FIT entry failed validation");
+    }
+    return fit;
+  } finally {
+    fs.unlinkSync(zipPath);
+  }
+}
+
+async function ensureDownload(client, record, cacheDir, extension, fileType, index, total) {
+  const cachePath = path.join(cacheDir, cacheName(record, extension));
+  const existing = fs.existsSync(cachePath) ? fs.readFileSync(cachePath) : null;
+  if (extension === "fit" && existing && looksLikeFit(existing)) {
+    return { path: cachePath, size: existing.length, cached: true };
+  }
+  if (extension === "gpx" && existing && looksLikeGpx(existing)) {
+    return { path: cachePath, size: existing.length, cached: true };
+  }
+
+  const download = await client.downloadActivityFile(
+    String(record.source_id),
+    record.raw_sport,
+    fileType,
+  );
+  let { buffer, fileUrl } = download;
+  if (extension === "fit" && buffer.subarray(0, 2).toString("ascii") === "PK") {
+    buffer = extractFitFromZip(buffer, cacheDir, String(record.source_id));
+  }
+  if (extension === "fit" && !looksLikeFit(buffer)) {
+    throw new Error(`download is not a FIT file (${buffer.subarray(0, 12).toString("hex")})`);
+  }
+  if (extension === "gpx" && !looksLikeGpx(buffer)) {
+    throw new Error("download is not a GPX file");
+  }
+  const tempPath = `${cachePath}.tmp-${process.pid}-${index}`;
+  fs.writeFileSync(tempPath, buffer);
+  fs.renameSync(tempPath, cachePath);
+  console.error(`coros download: ok ${extension} ${index + 1}/${total} ${path.basename(cachePath)}`);
+  return { path: cachePath, size: buffer.length, cached: false, fileUrl };
 }
 
 loadEnvFile(path.join(SKILL_DIR, ".env"));
@@ -88,48 +149,54 @@ await loginWithRetry(client);
 
 const results = [];
 for (const [index, record] of manifest.entries()) {
-  const name = cacheName(record);
-  const cachePath = path.join(cacheDir, name);
-  const existing = fs.existsSync(cachePath) ? fs.readFileSync(cachePath) : null;
+  const fitName = cacheName(record, "fit");
+  const gpxName = cacheName(record, "gpx");
+  const item = {
+    source_id: String(record.source_id),
+    path: null,
+    size: null,
+    gpx_path: null,
+    gpx_size: null,
+    errors: [],
+  };
+  let fit = null;
+  let gpx = null;
   try {
-    if (existing && looksLikeFit(existing)) {
-      results.push({
-        source_id: String(record.source_id),
-        path: cachePath,
-        size: existing.length,
-        cached: true,
-      });
-      console.error(`coros download: cached ${index + 1}/${manifest.length} ${name}`);
-      continue;
-    }
-
-    const { buffer, fileUrl } = await client.downloadActivityFile(
-      String(record.source_id),
-      record.raw_sport,
+    fit = await ensureDownload(
+      client,
+      record,
+      cacheDir,
+      "fit",
       4,
+      index,
+      manifest.length,
     );
-    if (!looksLikeFit(buffer)) {
-      throw new Error(`download is not a FIT file (${buffer.subarray(0, 12).toString("hex")})`);
-    }
-    const tempPath = `${cachePath}.tmp-${process.pid}-${index}`;
-    fs.writeFileSync(tempPath, buffer);
-    fs.renameSync(tempPath, cachePath);
-    results.push({
-      source_id: String(record.source_id),
-      path: cachePath,
-      size: buffer.length,
-      cached: false,
-      fileUrl,
-    });
-    console.error(`coros download: ok ${index + 1}/${manifest.length} ${name}`);
+    item.path = fit.path;
+    item.size = fit.size;
   } catch (error) {
-    results.push({
-      source_id: String(record.source_id),
-      path: null,
-      error: error.message,
-    });
-    console.error(`coros download: FAIL ${index + 1}/${manifest.length} ${name}: ${error.message}`);
+    item.errors.push(`fit: ${error.message}`);
+    console.error(`coros download: FAIL fit ${index + 1}/${manifest.length} ${fitName}: ${error.message}`);
   }
+
+  try {
+    gpx = await ensureDownload(
+      client,
+      record,
+      cacheDir,
+      "gpx",
+      1,
+      index,
+      manifest.length,
+    );
+    item.gpx_path = gpx.path;
+    item.gpx_size = gpx.size;
+  } catch (error) {
+    item.errors.push(`gpx: ${error.message}`);
+    console.error(`coros download: FAIL gpx ${index + 1}/${manifest.length} ${gpxName}: ${error.message}`);
+  }
+
+  if (fit?.cached || gpx?.cached) item.cached = true;
+  results.push(item);
   if (delayMs > 0) await sleep(delayMs);
 }
 

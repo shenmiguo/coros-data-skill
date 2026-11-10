@@ -58,6 +58,7 @@ def parse_args(argv=None):
     parser.add_argument("--delay", type=float, default=1.0)
     parser.add_argument("--download-delay-ms", type=float, default=500)
     parser.add_argument("--download-timeout", type=int, default=1200)
+    parser.add_argument("--upload-timeout", type=int, default=90)
     parser.add_argument("--cache-dir", default="data/coros_originals")
     return parser.parse_args(argv)
 
@@ -175,8 +176,21 @@ def target_id_from_response(response):
     return str(value) if value else None
 
 
-def upload_file(client, path):
-    response = client.upload_activity(str(path))
+def is_duplicate_activity_error(exc):
+    text = str(exc)
+    return "409" in text and "Duplicate Activity" in text
+
+
+def upload_file(client, path, timeout=90):
+    payload = Path(path)
+    with payload.open("rb") as file_handle:
+        response = client.client.post(
+            "connectapi",
+            client.garmin_connect_upload,
+            files={"file": (payload.name, file_handle, "application/octet-stream")},
+            api=True,
+            timeout=timeout,
+        )
     target_id = target_id_from_response(response)
     if not target_id:
         raise RuntimeError(f"Garmin upload returned no target id: {response!r}")
@@ -228,11 +242,18 @@ def main(argv=None):
         missing, args.cache_dir, args.download_delay_ms, args.download_timeout
     )
     files = {item["source_id"]: item for item in downloads}
-    failed = [item for item in downloads if not item.get("path")]
+    failed = [item for item in downloads if not item.get("path") and not item.get("gpx_path")]
     if failed:
         for item in failed:
-            print(f"download failed: {item['source_id']}: {item.get('error')}", file=sys.stderr)
-        if not any(files.get(record["source_id"], {}).get("path") for record in missing):
+            print(
+                f"download failed: {item['source_id']}: {'; '.join(item.get('errors', []))}",
+                file=sys.stderr,
+            )
+        if not any(
+            files.get(record["source_id"], {}).get("path")
+            or files.get(record["source_id"], {}).get("gpx_path")
+            for record in missing
+        ):
             return 1
 
     if args.manifest_only:
@@ -251,7 +272,7 @@ def main(argv=None):
         print(f"{target}: {len(todo)} upload(s) after target-side ledger check", flush=True)
         for index, record in enumerate(todo, 1):
             item = files.get(record["source_id"])
-            if not item or not item.get("path"):
+            if not item or (not item.get("path") and not item.get("gpx_path")):
                 fail += 1
                 continue
             existing = next(
@@ -268,26 +289,46 @@ def main(argv=None):
                 )
                 continue
 
+            primary_path = item.get("path") or item.get("gpx_path")
             try:
-                target_id = upload_file(client, item["path"])
+                target_id = upload_file(client, primary_path, args.upload_timeout)
                 record_upload(target, record["source_id"], target_id, "coros")
                 ok += 1
                 total_ok += 1
-                print(
-                    f"[{index}/{len(todo)}] ok {local_time(record)} -> "
-                    f"target={target_id} ({item['size']}B)",
-                    flush=True,
-                )
-                time.sleep(args.delay)
             except Exception as exc:
-                if "409" in str(exc) and "Duplicate Activity" in str(exc):
-                    record_upload(target, record["source_id"], "duplicate-existing", "coros")
-                    duplicate += 1
-                    print(f"[{index}/{len(todo)}] duplicate {local_time(record)}", file=sys.stderr)
-                else:
+                gpx_path = item.get("gpx_path")
+                if (
+                    not is_duplicate_activity_error(exc)
+                    or primary_path == gpx_path
+                    or not gpx_path
+                ):
                     fail += 1
-                    print(f"[{index}/{len(todo)}] FAIL {local_time(record)}: {exc}", file=sys.stderr)
-                time.sleep(args.delay * 2)
+                    print(
+                        f"[{index}/{len(todo)}] FAIL {local_time(record)}: {exc}",
+                        file=sys.stderr,
+                    )
+                    time.sleep(args.delay * 2)
+                    continue
+                try:
+                    target_id = upload_file(client, gpx_path, args.upload_timeout)
+                    record_upload(target, record["source_id"], target_id, "coros")
+                    ok += 1
+                    total_ok += 1
+                except Exception as gpx_exc:
+                    fail += 1
+                    print(
+                        f"[{index}/{len(todo)}] FAIL {local_time(record)}: "
+                        f"FIT={exc}; GPX={gpx_exc}",
+                        file=sys.stderr,
+                    )
+                    time.sleep(args.delay * 2)
+                    continue
+            print(
+                f"[{index}/{len(todo)}] ok {local_time(record)} -> target={target_id} "
+                f"({item['size'] or item['gpx_size']}B)",
+                flush=True,
+            )
+            time.sleep(args.delay)
         total_duplicate += duplicate
         total_fail += fail
         print(f"{target} done: ok={ok} duplicate={duplicate} fail={fail}", flush=True)
