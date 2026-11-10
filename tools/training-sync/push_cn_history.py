@@ -26,7 +26,6 @@ from sports import classify_garmin, sports_compatible
 
 ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "data" / "activities.db"
-MIN_COROS_FILE_BYTES = 20 * 1024
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS push_uploads (
@@ -209,30 +208,35 @@ def fetch_coros_activities(start, end):
 
 def matches_coros(activity, rec, max_gap_s=120):
     type_key = (activity.get("activityType") or {}).get("typeKey")
-    if not sports_compatible(classify_garmin(type_key), rec.get("sport")):
-        return False
     start_g = parse_gmt(activity["startTimeGMT"])
     start_c = datetime.fromisoformat(rec["start_utc"].replace("Z", "+00:00"))
-    if abs((start_g - start_c).total_seconds()) > max_gap_s:
+    start_gap = abs((start_g - start_c).total_seconds())
+    if start_gap > max_gap_s:
         return False
     da, db = activity.get("distance"), rec.get("distance_m")
     ta, tb = activity.get("duration"), rec.get("duration_s")
     has_distance = bool(da and db and min(da, db) > 200)
     has_duration = bool(ta and tb and min(ta, tb) > 30)
+    if not sports_compatible(
+        classify_garmin(type_key),
+        rec.get("sport"),
+        allow_strength_cardio=not has_distance and start_gap <= 5,
+    ):
+        return False
     if not has_distance and not has_duration:
         return True
 
     distance_strong = has_distance and rel_diff(da, db) <= 0.02
+    distance_plausible = has_distance and rel_diff(da, db) <= 0.20
     duration_close = has_duration and (
         abs(ta - tb) <= 30 or rel_diff(ta, tb) <= 0.10
     )
-    if abs((start_g - start_c).total_seconds()) <= 5 and (
-        not has_distance or distance_strong or duration_close
+    if start_gap <= 5 and (
+        not has_distance or distance_strong or distance_plausible or duration_close
     ):
         return True
 
     distance_close = has_distance and rel_diff(da, db) <= 0.10
-    distance_plausible = has_distance and rel_diff(da, db) <= 0.20
     duration_plausible = has_duration and rel_diff(ta, tb) <= 0.25
     if has_distance and has_duration:
         return (
@@ -275,14 +279,22 @@ def export_for_coros(cn, cn_acts, export_dir, start, end, delay=0.5):
 
 def download_fit(client, activity, export_dir=None):
     raw = client.download_activity(str(activity["activityId"]), dl_fmt=Garmin.ActivityDownloadFormat.ORIGINAL)
-    fit, _inner = extract_fit(raw)
-    path = Path(tempfile.gettempdir()) / f"cn_{activity['activityId']}.fit"
-    path.write_bytes(fit)
+    payload, _inner = extract_fit(raw)
+    ext = "fit"
+    if not looks_like_fit(payload):
+        payload = client.download_activity(
+            str(activity["activityId"]), dl_fmt=Garmin.ActivityDownloadFormat.TCX
+        )
+        ext = "tcx"
+        if not looks_like_tcx(payload):
+            raise ValueError("Garmin TCX download is not a TrainingCenterDatabase")
+    path = Path(tempfile.gettempdir()) / f"cn_{activity['activityId']}.{ext}"
+    path.write_bytes(payload)
     if export_dir:
         export_dir.mkdir(parents=True, exist_ok=True)
         start = activity["startTimeLocal"].replace(":", "").replace(" ", "_")
-        (export_dir / f"{start}_{activity['activityId']}.fit").write_bytes(fit)
-    return path, len(fit)
+        (export_dir / f"{start}_{activity['activityId']}.{ext}").write_bytes(payload)
+    return path, len(payload)
 
 
 def extract_fit(data):
@@ -295,30 +307,48 @@ def extract_fit(data):
             return z.read(name), name
     if data[:4] in (b".FIT", b"MFIT"):
         return data, "activity.fit"
+    if data.lstrip().startswith(b"<?xml"):
+        return data, "activity.xml"
     raise ValueError(f"unexpected download format: {data[:8].hex()}")
 
 
+def looks_like_fit(data):
+    return data[:4] in (b".FIT", b"MFIT")
+
+
+def looks_like_tcx(data):
+    head = data[:4096]
+    return b"TrainingCenterDatabase" in head
+
+
 def download_export(client, activity, export_dir):
-    """COROS import requires files >= 20 KB; fall back to TCX for short FITs."""
+    """Save a COROS-compatible FIT, falling back to TCX when needed."""
     export_dir.mkdir(parents=True, exist_ok=True)
     existing = sorted(export_dir.glob(f"*_{activity['activityId']}.*"))
     for path in existing:
-        if path.suffix.lower() in {".fit", ".tcx"} and path.stat().st_size >= MIN_COROS_FILE_BYTES:
+        data = path.read_bytes()
+        if (
+            path.suffix.lower() == ".fit"
+            and looks_like_fit(data)
+            or path.suffix.lower() == ".tcx"
+            and looks_like_tcx(data)
+        ):
             return path.name, path.stat().st_size
 
-    tmp, fit_size = download_fit(client, activity)
+    tmp, _size = download_fit(client, activity)
     data = tmp.read_bytes()
     tmp.unlink(missing_ok=True)
-    ext = "fit"
-    if fit_size < MIN_COROS_FILE_BYTES:
+    if looks_like_fit(data):
+        ext = "fit"
+    elif looks_like_tcx(data):
+        ext = "tcx"
+    else:
         data = client.download_activity(
             str(activity["activityId"]), dl_fmt=Garmin.ActivityDownloadFormat.TCX
         )
         ext = "tcx"
-    if len(data) < MIN_COROS_FILE_BYTES:
-        raise ValueError(
-            f"{ext.upper()} is below COROS's 20 KB minimum ({len(data)}B)"
-        )
+    if ext == "tcx" and not looks_like_tcx(data):
+        raise ValueError("Garmin TCX download is not a TrainingCenterDatabase")
     start = activity["startTimeLocal"].replace(":", "").replace(" ", "_")
     name = f"{start}_{activity['activityId']}.{ext}"
     (export_dir / name).write_bytes(data)

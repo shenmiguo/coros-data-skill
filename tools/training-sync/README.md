@@ -103,9 +103,9 @@ tools/training-sync/.venv/bin/python tools/training-sync/reconcile_coros_import.
   --execute
 ```
 
-国行 FIT 通过 `download_activity(..., ORIGINAL)` 获取时实际是 ZIP 包装，脚本会先提取
-内部 FIT。COROS 官方要求单文件至少 20 KB，因此小 FIT 会自动改下 TCX；TCX 仍不足
-20 KB 时会在报告中列为失败，不会伪装成可导入文件。
+国行 FIT 通过 `download_activity(..., ORIGINAL)` 获取时实际可能是 ZIP 包装，也可能
+直接返回 GPX。脚本会校验文件真实格式：有 FIT 时保留 FIT，否则自动改下 TCX；不再
+按文件大小推断格式，因为 COROS 当前已接受小体积 TCX。
 
 COROS 没有公开的上传 API。`import_to_coros.mjs` 复用了 COROS 网页当前的
 STS -> 阿里云 OSS -> `/activity/fit/import` 流程，按 ZIP 批量导入并轮询任务状态。

@@ -37,6 +37,13 @@ class CrossSourceMatchingTests(unittest.TestCase):
         self.assertEqual("stair_climb", classify_garmin("floor_climbing"))
         self.assertTrue(sports_compatible("other", "cardio"))
         self.assertFalse(sports_compatible("strength", "cardio"))
+        self.assertTrue(
+            sports_compatible(
+                "strength",
+                "cardio",
+                allow_strength_cardio=True,
+            )
+        )
 
     def test_same_start_and_distance_match_despite_duration_difference(self):
         garmin = normalized(
@@ -93,7 +100,7 @@ class CrossSourceMatchingTests(unittest.TestCase):
 
         self.assertTrue(push.matches_coros(garmin, coros, max_gap_s=120))
 
-    def test_non_running_sport_mismatch_does_not_match(self):
+    def test_exact_start_matches_strength_imported_as_cardio(self):
         garmin = {
             "activityId": 561074379,
             "activityType": {"typeKey": "strength_training"},
@@ -109,8 +116,71 @@ class CrossSourceMatchingTests(unittest.TestCase):
             duration_s=2700,
             sport="cardio",
         )
+        garmin_normalized = normalized(
+            "garmin_cn",
+            "561074379",
+            "2025-04-22T23:28:37Z",
+            distance_m=0,
+            duration_s=2695.72,
+            sport="strength",
+        )
+
+        self.assertTrue(push.matches_coros(garmin, coros, max_gap_s=120))
+        self.assertTrue(sync.same_workout(garmin_normalized, coros, 120))
+
+    def test_strength_and_cardio_do_not_match_on_loose_start_only(self):
+        garmin = {
+            "activityId": 561074379,
+            "activityType": {"typeKey": "strength_training"},
+            "startTimeGMT": "2025-04-22 23:28:37",
+            "distance": 0,
+            "duration": 2695.72,
+        }
+        coros = normalized(
+            "coros",
+            "481655400000000001",
+            "2025-04-22T23:30:00Z",
+            distance_m=0,
+            duration_s=2700,
+            sport="cardio",
+        )
+        garmin_normalized = normalized(
+            "garmin_cn",
+            "561074379",
+            "2025-04-22T23:28:37Z",
+            distance_m=0,
+            duration_s=2695.72,
+            sport="strength",
+        )
 
         self.assertFalse(push.matches_coros(garmin, coros, max_gap_s=120))
+        self.assertFalse(sync.same_workout(garmin_normalized, coros, 120))
+
+    def test_exact_start_matches_when_distance_and_duration_differ(self):
+        garmin = {
+            "activityId": 158789587,
+            "activityType": {"typeKey": "running"},
+            "startTimeGMT": "2021-10-19 00:12:49",
+            "distance": 2400,
+            "duration": 507,
+        }
+        coros = normalized(
+            "coros",
+            "474997491308199944",
+            "2021-10-19T00:12:49Z",
+            distance_m=2016.23,
+            duration_s=816,
+        )
+        garmin_normalized = normalized(
+            "garmin_cn",
+            "158789587",
+            "2021-10-19T00:12:49Z",
+            distance_m=2400,
+            duration_s=507,
+        )
+
+        self.assertTrue(push.matches_coros(garmin, coros, max_gap_s=120))
+        self.assertTrue(sync.same_workout(garmin_normalized, coros, 120))
 
     def test_generic_garmin_other_matches_specific_coros_sport(self):
         garmin = {

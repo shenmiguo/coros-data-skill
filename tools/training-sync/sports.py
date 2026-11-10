@@ -54,9 +54,12 @@ def classify_garmin(type_key):
     return GARMIN_SPORT_MAP.get(type_key, f"other-{type_key or 'unknown'}")
 
 
-def sports_compatible(left, right):
+def sports_compatible(left, right, allow_strength_cardio=False):
     """Allow generic Garmin/COROS labels to match a more specific sport."""
     if left == right:
+        return True
+    if allow_strength_cardio and {left, right} == {"strength", "cardio"}:
+        # COROS imports some Garmin strength-training files as generic cardio.
         return True
     return (
         left in (None, "other")
