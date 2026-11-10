@@ -1,0 +1,12 @@
+{
+  "name": "coros-toolbox",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal sports-data toolbox: COROS skill SDK + standalone tools",
+  "dependencies": {
+    "axios": "^1.13.6",
+    "dotenv": "^17.3.1",
+    "nodemailer": "^9.0.3"
+  }
+}

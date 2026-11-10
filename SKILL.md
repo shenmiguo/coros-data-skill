@@ -83,7 +83,11 @@ console.log(snapshot.current.hrvToday, snapshot.trainingStatus.fatigue);
 
 | 脚本 | 用途 |
 |------|------|
-| `coach_dashboard.js` | 教练仪表盘：完整运动员状态报告 |
+| `send_email.js` | SMTP 邮件发送（简报等工具共用） |
+
+> 仓库采用 `scripts/`（SDK + 核心 CLI）+ `tools/`（独立工具）结构，
+> 简报生成在 `tools/briefing/`，仪表盘在 `tools/dashboard/`，
+> 训练计划脚本在 `tools/plan-creator/`，COROS×Garmin 数据同步去重在 `tools/training-sync/`。
 | `fetch_recent.js <days> [endDate]` | 查询近期活动 |
 | `coros.js` | API 客户端库 |
 | `util.js` | 工具函数 |

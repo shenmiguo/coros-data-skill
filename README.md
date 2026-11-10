@@ -1,89 +1,30 @@
-# COROS Data Skill
+# coros-data-skill
 
-A [Codex](https://codex.openai.com) skill for querying training data from COROS sports watches via the COROS Training Hub API.
+个人运动数据工具箱：COROS Training Hub SDK + 一组独立工具。
 
-## Features
+## 结构
 
-- **Activity Query** - Search running activities by date range (distance, pace, HR, training load, power)
-- **Lap Splits** - Fetch per-lap detail for any activity, with automatic effort/rest classification and interval summarization
-- **Dashboard** - LTHR, MaxHR, RHR, HRV, recovery %, HR/pace zones, personal records
-- **Daily Metrics** - ATI/CTI, training load (7d/28d), fatigue, performance, stamina level
-- **Athlete Profile** - Height, weight, birthday, MaxHR, RHR
-- **One-call Snapshot** - Structured athlete status report for coaching analysis
+```
+coros-data-skill/
+├── SKILL.md            # Codex skill 入口（COROS 查询能力说明）
+├── scripts/            # SDK：CorosClient / util / fetch_recent CLI / send_email
+└── tools/              # 独立工具（每个工具一个目录）
+    ├── training-sync/  # COROS × Garmin(国行/国际) 数据打通 + 跨设备去重
+    ├── briefing/       # 每日教练简报（HTML / 邮件）
+    ├── dashboard/      # 教练仪表盘（运动员状态报告）
+    └── plan-creator/   # 周计划创建并同步手表
+```
 
-## Installation
+## 快速开始
 
 ```bash
-codex skill install https://github.com/shenmiguo/coros-data-skill
+npm install
+
+# COROS SDK 冒烟测试（需 scripts/.env）
+node scripts/fetch_recent.js 7
+
+# 数据同步（需 tools/training-sync/.env 配置 Garmin 账号）
+tools/training-sync/.venv/bin/python tools/training-sync/sync.py --days 30
 ```
 
-## Configuration
-
-Create `scripts/.env` with your COROS account credentials:
-
-```bash
-cp scripts/.env.example scripts/.env
-```
-
-```env
-COROS_ACCOUNT=your_email_or_phone
-COROS_PASSWORD=your_md5_hashed_password
-```
-
-To get the MD5 hash of your password:
-
-```bash
-echo -n "your_password" | md5sum
-```
-
-## API Reference
-
-### CorosClient
-
-| Method | Params | Description |
-|--------|--------|-------------|
-| `login()` | - | Authenticate and initialize session |
-| `fetchActivity(startDay, endDay, size)` | YYYYMMDD | Running activity list |
-| `fetchRecentActivities(days, endDate)` | days, YYYY-MM-DD | Recent N days of activities |
-| `fetchActivityDetail(labelId, sportType)` | activity ID, sport type | Raw activity detail (lapList, summary, zoneList) |
-| `fetchActivityLaps(labelId, sportType)` | activity ID, sport type | Parsed lap splits with effort/rest classification |
-| `fetchDashboard()` | - | LTHR/MaxHR/RHR/HRV/recovery/zones/PRs |
-| `fetchDashboardDetail()` | - | Daily ATI/CTI/load/fatigue/weekly distance |
-| `fetchAccount()` | - | Height/weight/birthday/MaxHR/RHR |
-| `fetchProfile()` | - | Display preferences and sport mode config |
-| `fetchTrainingPlans()` | - | Training plan list |
-| `fetchAthleteSnapshot()` | - | One-call comprehensive status report |
-
-### Sport Types
-
-| Code | Type |
-------|------|
-| 100 | Outdoor Run |
-| 101 | Indoor Run |
-| 102 | Trail Run |
-| 103 | Track Run |
-
-## Usage
-
-```js
-import { CorosClient, fmtPace } from "./coros.js";
-
-const client = new CorosClient(
-  process.env.COROS_ACCOUNT,
-  process.env.COROS_PASSWORD
-);
-await client.login();
-
-// Recent 7 days of activities
-const activities = await client.fetchRecentActivities(7);
-
-// Full athlete snapshot for coaching analysis
-const snapshot = await client.fetchAthleteSnapshot();
-
-// Lap-level interval analysis
-const laps = await client.fetchActivityLaps(labelId, 103);
-```
-
-## License
-
-MIT
+各工具的详细用法见 `tools/README.md` 与各目录内的 README。

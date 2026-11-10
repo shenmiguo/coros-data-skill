@@ -1,5 +1,10 @@
 import "dotenv/config";
-import { CorosClient } from "./coros.js";
+import dotenv from "dotenv";
+import { fileURLToPath } from "node:url";
+
+dotenv.config({ path: fileURLToPath(new URL("../../scripts/.env", import.meta.url)) });
+
+import { CorosClient } from "../../scripts/coros.js";
 
 const client = new CorosClient(process.env.COROS_ACCOUNT, process.env.COROS_PASSWORD);
 await client.login();

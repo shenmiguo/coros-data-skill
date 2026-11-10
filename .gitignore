@@ -4,6 +4,13 @@ node_modules/
 # Credentials - NEVER commit
 scripts/.env
 *.env
+.env
+
+# Python tool runtime (training-sync)
+.venv/
+data/
+out/
+__pycache__/
 
 # OS
 .DS_Store

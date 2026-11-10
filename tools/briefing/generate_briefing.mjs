@@ -1,7 +1,10 @@
-import "dotenv/config";
-import { CorosClient, fmtPace, fmtDate, fmtDuration } from "/Users/jedyi/.codex/skills/coros-data-skill/scripts/coros.js";
-import { generateBriefingHTML, assessLight } from "/Users/jedyi/.codex/skills/coros-data-skill/scripts/briefing_html.js";
-import { sendBriefingEmail } from "/Users/jedyi/.codex/skills/coros-data-skill/scripts/send_email.js";
+import dotenv from "dotenv";
+import { fileURLToPath } from "node:url";
+
+dotenv.config({ path: fileURLToPath(new URL("../../scripts/.env", import.meta.url)) });
+import { CorosClient, fmtPace, fmtDate, fmtDuration } from "../../scripts/coros.js";
+import { generateBriefingHTML, assessLight } from "./briefing_html.js";
+import { sendBriefingEmail } from "../../scripts/send_email.js";
 
 // ---- Config ----
 // 支持 --preview 参数：只生成 HTML 预览文件，不发邮件
@@ -51,7 +54,10 @@ for (const a of todayActs) {
   const laps = await client.fetchActivityLaps(a.labelId, a.sportType);
   const intervals = laps?.intervals || [];
   for (const iv of intervals) {
-    for (const grp of iv) {
+    // intervals is nested (groups of reps) for interval sessions but flat
+    // for track/race sessions; normalize before iterating.
+    const groups = Array.isArray(iv) ? iv : [iv];
+    for (const grp of groups) {
       if (grp.count && grp.count > 1) {
         segments.push({
           zone: "I",
@@ -185,7 +191,7 @@ if (PREVIEW_ONLY) {
   process.exit(0);
 }
 
-import { sendMail } from "/Users/jedyi/.codex/skills/coros-data-skill/scripts/send_email.js";
+import { sendMail } from "../../scripts/send_email.js";
 try {
   const id2 = await sendMail({
     to: process.env.BRIEFING_MAIL_TO,
