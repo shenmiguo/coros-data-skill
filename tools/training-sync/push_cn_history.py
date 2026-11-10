@@ -166,20 +166,28 @@ def unique_source_activities(activities):
     return unique
 
 
-def already_uploaded(target):
+def already_uploaded(target, source=None):
     con = sqlite3.connect(DB_PATH)
     con.execute(SCHEMA)
-    rows = con.execute("SELECT source_id FROM push_uploads WHERE target = ?", (target,)).fetchall()
+    if source:
+        rows = con.execute(
+            "SELECT source_id FROM push_uploads WHERE target = ? AND source = ?",
+            (target, source),
+        ).fetchall()
+    else:
+        rows = con.execute(
+            "SELECT source_id FROM push_uploads WHERE target = ?", (target,)
+        ).fetchall()
     con.close()
     return {r[0] for r in rows}
 
 
-def record_upload(target, source_id, target_id):
+def record_upload(target, source_id, target_id, source="garmin_cn"):
     con = sqlite3.connect(DB_PATH)
     con.execute(SCHEMA)
     con.execute(
         "INSERT OR REPLACE INTO push_uploads (target, source, source_id, target_id, uploaded_at) VALUES (?, ?, ?, ?, ?)",
-        (target, "garmin_cn", source_id, target_id, datetime.now(timezone.utc).isoformat()),
+        (target, source, source_id, target_id, datetime.now(timezone.utc).isoformat()),
     )
     con.commit()
     con.close()

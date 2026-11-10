@@ -10,6 +10,9 @@ Garmin 走社区库 `garminconnect`（`is_cn=True/False` 切换国行/国际）�
 
 - `sync.py`：从三个账号拉取历史/增量数据并去重，输出 SQLite/JSON；
 - `push_cn_history.py`：把 Garmin 国行历史回传到 Garmin 国际和 COROS；
+- `push_coros_history.py`：把缺少 Garmin 副本的 COROS 原始 FIT 反向回传到
+  Garmin 国行和 Garmin 国际；
+- `download_coros_history.mjs`：一次登录后批量下载并缓存 COROS 原始 FIT；
 - `reconcile_coros_import.py`：对已提交但部分失败的 COROS ZIP 导入做现场核对和补记账；
 - `cleanup_coros_duplicates.py`：审计并清理本工具造成的 COROS 重复活动；
 - `import_to_coros.mjs` / `delete_coros_activities.mjs`：底层网页接口工具，不建议手动直接调用。
@@ -106,6 +109,42 @@ tools/training-sync/.venv/bin/python tools/training-sync/reconcile_coros_import.
 国行 FIT 通过 `download_activity(..., ORIGINAL)` 获取时实际可能是 ZIP 包装，也可能
 直接返回 GPX。脚本会校验文件真实格式：有 FIT 时保留 FIT，否则自动改下 TCX；不再
 按文件大小推断格式，因为 COROS 当前已接受小体积 TCX。
+
+## COROS 反向回传 Garmin
+
+`push_coros_history.py` 处理合并结果中缺少国行和/或国际记录的 COROS 组。它按组
+只下载一次 COROS 原始 FIT，再分别上传到缺失目标。下载接口使用 Training Hub 的
+`/activity/detail/download`（`fileType=4` 表示 FIT），并校验标准 FIT 文件头。
+
+```bash
+# 预演十年队列；这里只读 SQLite，不登录远端
+tools/training-sync/.venv/bin/python tools/training-sync/push_coros_history.py \
+  --years 10 --db-only
+
+# 只下载 1 个原始 FIT，验证文件格式，不上传 Garmin
+tools/training-sync/.venv/bin/python tools/training-sync/push_coros_history.py \
+  --years 10 --limit 1 --manifest-only
+
+# 小批量真实回传；--limit 是活动组数，不是目标上传次数
+tools/training-sync/.venv/bin/python tools/training-sync/push_coros_history.py \
+  --years 10 --limit 5
+
+# 确认后跑十年全量，两个目标一次执行
+tools/training-sync/.venv/bin/python tools/training-sync/push_coros_history.py \
+  --years 10
+```
+
+回传是幂等的：
+
+- 本地合并库判断缺失目标；COROS-only 补国行 + 国际，COROS + 国行只补国际；
+- `push_uploads` 使用 `(target, source, source_id)` 记账，这里的 `source=coros`；
+- 上传前还会重新拉取目标账号 10 年活动，按起点、运动类型、距离/时长匹配；
+  如果远端已有活动，则补台账并跳过；
+- Garmin 返回 `409 Duplicate Activity` 时也会写入台账；
+- 同一组包含多条 COROS 记录时，只取一个代表记录，避免把重复导入再次扩散。
+
+原始 FIT 缓存在 `data/coros_originals/`，文件名包含 COROS `start_utc` 和
+`source_id`。命令完成后重新运行 `sync.py` 才会把新的目标端副本合并进本地库。
 
 COROS 没有公开的上传 API。`import_to_coros.mjs` 复用了 COROS 网页当前的
 STS -> 阿里云 OSS -> `/activity/fit/import` 流程，按 ZIP 批量导入并轮询任务状态。

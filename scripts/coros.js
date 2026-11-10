@@ -444,6 +444,35 @@ async createProgram(name, segments, overview = "") {
   }
 
   /**
+   * 导出原始活动文件。fileType 使用 Training Hub 的枚举：4=FIT，3=TCX。
+   * @param {string} labelId 活动 ID
+   * @param {number|string} sportType 运动类型
+   * @param {number} fileType 文件类型，默认 FIT
+   * @returns {Promise<{buffer: Buffer, fileUrl: string}>}
+   */
+  async downloadActivityFile(labelId, sportType, fileType = 4) {
+    await this.ensureLogin();
+    const res = await this.authedAxios.post(
+      "/activity/detail/download",
+      null,
+      { params: { labelId, sportType: Number(sportType), fileType } },
+    );
+    if (res.data?.result !== "0000") {
+      throw new Error(
+        `COROS download failed: ${res.data?.result || "unknown"} ${
+          res.data?.message || ""
+        }`.trim(),
+      );
+    }
+    const fileUrl = res.data?.data?.fileUrl;
+    if (!fileUrl) throw new Error("COROS download returned no fileUrl");
+    const file = await this.authedAxios.get(fileUrl, {
+      responseType: "arraybuffer",
+    });
+    return { buffer: Buffer.from(file.data), fileUrl };
+  }
+
+  /**
    * 查询单个活动的圈速解析（自动分类 effort/rest）
    * @param {string} labelId 活动 ID
    * @param {number|string} sportType 运动类型
