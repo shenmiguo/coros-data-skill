@@ -22,13 +22,16 @@ GARMIN_SPORT_MAP = {
     "e_bike_mountain": "bike",
     "elliptical_training": "cardio",
     "floor_climbing": "stair_climb",
+    "hiit": "cardio",
     "gravel_cycling": "bike",
     "hiking": "hike",
     "indoor_cardio": "cardio",
     "indoor_cycling": "bike",
     "indoor_rowing": "row",
     "lap_swimming": "swim",
+    "jump_rope": "jump_rope",
     "mountain_biking": "bike",
+    "mountaineering": "mountaineering",
     "multi_sport": "multisport",
     "open_water_swimming": "swim",
     "other": "other",
@@ -54,12 +57,17 @@ def classify_garmin(type_key):
     return GARMIN_SPORT_MAP.get(type_key, f"other-{type_key or 'unknown'}")
 
 
-def sports_compatible(left, right, allow_strength_cardio=False):
+def sports_compatible(left, right, allow_strength_cardio=False, allow_cardio_run=False):
     """Allow generic Garmin/COROS labels to match a more specific sport."""
     if left == right:
         return True
     if allow_strength_cardio and {left, right} == {"strength", "cardio"}:
         # COROS imports some Garmin strength-training files as generic cardio.
+        return True
+    if allow_cardio_run and {left, right} == {"cardio", "run"}:
+        # COROS type 401 is outdoor cardio, but historical Garmin imports can
+        # preserve it as running. Exact timing and metric checks still gate the
+        # final match.
         return True
     return (
         left in (None, "other")

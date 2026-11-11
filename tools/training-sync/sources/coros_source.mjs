@@ -38,12 +38,15 @@ const SPORT_TYPE_MAP = new Map([
   [104, "hike"],
   [200, "bike"],
   [400, "cardio"],
+  [401, "cardio"],
   [402, "strength"],
   [900, "walk"],
   [901, "jump_rope"],
   [902, "stair_climb"],
   [9901, "stair_climb"],
   [10001, "multisport"],
+  [105, "mountaineering"],
+  [65535, "run"],
 ]);
 
 function classify(sportType) {

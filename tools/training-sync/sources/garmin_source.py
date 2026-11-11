@@ -36,13 +36,16 @@ def parse_gmt(value: str) -> datetime:
 def normalize(a: dict, label: str) -> dict:
     type_key = (a.get("activityType") or {}).get("typeKey", "unknown")
     start = parse_gmt(a["startTimeGMT"])
+    # Garmin's `duration` can exclude rest periods for interval workouts. COROS
+    # totalTime and Garmin elapsedDuration both describe the complete session.
+    duration = a.get("elapsedDuration") or a.get("duration")
     return {
         "source": label,
         "source_id": str(a["activityId"]),
         "sport": classify_garmin(type_key),
         "raw_sport": type_key,
         "start_utc": start.isoformat().replace("+00:00", "Z"),
-        "duration_s": a.get("duration"),
+        "duration_s": duration,
         "distance_m": a.get("distance"),
         "avg_hr": a.get("averageHR"),
         "max_hr": a.get("maxHR"),

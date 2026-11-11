@@ -7,6 +7,7 @@ sys.path.insert(0, str(TOOL_DIR))
 
 import push_cn_history as push  # noqa: E402
 import sync  # noqa: E402
+from sources.garmin_source import normalize  # noqa: E402
 from sports import classify_garmin, sports_compatible  # noqa: E402
 
 
@@ -35,6 +36,9 @@ class CrossSourceMatchingTests(unittest.TestCase):
         self.assertEqual("strength", classify_garmin("strength_training"))
         self.assertEqual("cardio", classify_garmin("indoor_cardio"))
         self.assertEqual("stair_climb", classify_garmin("floor_climbing"))
+        self.assertEqual("mountaineering", classify_garmin("mountaineering"))
+        self.assertEqual("jump_rope", classify_garmin("jump_rope"))
+        self.assertEqual("cardio", classify_garmin("hiit"))
         self.assertTrue(sports_compatible("other", "cardio"))
         self.assertFalse(sports_compatible("strength", "cardio"))
         self.assertTrue(
@@ -44,6 +48,26 @@ class CrossSourceMatchingTests(unittest.TestCase):
                 allow_strength_cardio=True,
             )
         )
+
+    def test_coros_outdoor_cardio_matches_garmin_running_import(self):
+        coros = normalized(
+            "coros",
+            "coros-401",
+            "2020-01-01T00:00:00Z",
+            distance_m=5000,
+            duration_s=1800,
+            sport="cardio",
+        )
+        garmin = normalized(
+            "garmin_cn",
+            "garmin-run",
+            "2020-01-01T00:00:01Z",
+            distance_m=5010,
+            duration_s=1798,
+            sport="run",
+        )
+
+        self.assertTrue(sync.same_workout(coros, garmin, 60))
 
     def test_same_start_and_distance_match_despite_duration_difference(self):
         garmin = normalized(
@@ -334,6 +358,35 @@ class CanonicalMetricTests(unittest.TestCase):
         canonical = sync.build_canonical([members])[0]
 
         self.assertEqual(1221, canonical["duration_s"])
+
+    def test_garmin_duration_uses_elapsed_session_time(self):
+        activity = normalize(
+            {
+                "activityId": 25028843969,
+                "activityType": {"typeKey": "track_running"},
+                "startTimeGMT": "2026-10-24 22:34:29",
+                "duration": 533.89,
+                "elapsedDuration": 1221.35,
+                "distance": 1374.09,
+            },
+            "garmin_intl",
+        )
+
+        self.assertEqual(1221.35, activity["duration_s"])
+
+    def test_garmin_duration_falls_back_to_activity_duration(self):
+        activity = normalize(
+            {
+                "activityId": 1,
+                "activityType": {"typeKey": "running"},
+                "startTimeGMT": "2026-10-24 22:34:29",
+                "duration": 533.89,
+                "distance": 1374.09,
+            },
+            "garmin_intl",
+        )
+
+        self.assertEqual(533.89, activity["duration_s"])
 
 
 if __name__ == "__main__":

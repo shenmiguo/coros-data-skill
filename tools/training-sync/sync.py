@@ -164,6 +164,7 @@ def same_workout(a, b, max_gap_s):
         a.get("sport"),
         b.get("sport"),
         allow_strength_cardio=not has_distance and gap <= 5,
+        allow_cardio_run=True,
     ):
         return False
     if not has_distance and not has_duration:

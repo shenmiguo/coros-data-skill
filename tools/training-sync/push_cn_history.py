@@ -229,6 +229,7 @@ def matches_coros(activity, rec, max_gap_s=120):
         classify_garmin(type_key),
         rec.get("sport"),
         allow_strength_cardio=not has_distance and start_gap <= 5,
+        allow_cardio_run=True,
     ):
         return False
     if not has_distance and not has_duration:
