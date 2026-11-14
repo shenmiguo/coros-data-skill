@@ -53,6 +53,11 @@ class FixGarminTypesTests(unittest.TestCase):
                 "garmin_intl", "intl2", "other", "2026-01-01T17:00:00Z",
                 "strength-group", "other",
             ),
+            ("coros", "c3", "stair_climb", "2026-01-01T18:00:00Z", "stair-group", 902),
+            (
+                "garmin_cn", "cn3", "other", "2026-01-01T18:00:00Z",
+                "stair-group", "other",
+            ),
         ]
         for source, source_id, sport, start, group, raw_sport in rows:
             con.execute(
@@ -96,9 +101,24 @@ class FixGarminTypesTests(unittest.TestCase):
                     "target": "garmin_intl",
                     "target_id": "intl2",
                 },
+                {
+                    "group_id": "stair-group",
+                    "canonical_sport": "stair_climb",
+                    "canonical_name": None,
+                    "target": "garmin_cn",
+                    "target_id": "cn3",
+                },
             ],
             rows,
         )
+
+    def test_load_candidates_can_filter_by_sport(self):
+        rows = fix.load_candidates(
+            "2026-01-01", "2026-12-31", ("garmin_cn",), ("stair_climb",)
+        )
+
+        self.assertEqual(["stair-group"], [row["group_id"] for row in rows])
+        self.assertEqual(["stair_climb"], [row["canonical_sport"] for row in rows])
 
     def test_parse_targets_rejects_unknown_target(self):
         with self.assertRaises(ValueError):

@@ -6,6 +6,7 @@ TOOL_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOL_DIR))
 
 import push_cn_history as push  # noqa: E402
+from reconcile_uploads import manual_type  # noqa: E402
 import sync  # noqa: E402
 from sources.garmin_source import normalize  # noqa: E402
 from sports import classify_garmin, sports_compatible  # noqa: E402
@@ -36,6 +37,7 @@ class CrossSourceMatchingTests(unittest.TestCase):
         self.assertEqual("strength", classify_garmin("strength_training"))
         self.assertEqual("cardio", classify_garmin("indoor_cardio"))
         self.assertEqual("stair_climb", classify_garmin("floor_climbing"))
+        self.assertEqual("floor_climbing", manual_type("stair_climb"))
         self.assertEqual("mountaineering", classify_garmin("mountaineering"))
         self.assertEqual("jump_rope", classify_garmin("jump_rope"))
         self.assertEqual("cardio", classify_garmin("hiit"))

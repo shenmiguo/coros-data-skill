@@ -65,6 +65,7 @@ MANUAL_TYPES = {
     "jump_rope": "jump_rope",
     "mountaineering": "mountaineering",
     "multisport": "multi_sport",
+    "stair_climb": "floor_climbing",
 }
 
 

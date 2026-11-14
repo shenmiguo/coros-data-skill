@@ -58,14 +58,22 @@ def parse_targets(value):
     return targets
 
 
-def load_candidates(start, end, targets):
+def load_candidates(start, end, targets, sports=None):
     if not DB_PATH.exists():
         raise FileNotFoundError(f"missing merged database: {DB_PATH}")
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
-    rows = con.execute(
-        CANDIDATE_SQL, (start, end, "garmin_cn", "garmin_intl")
-    ).fetchall()
+    sql = CANDIDATE_SQL
+    params = [start, end, "garmin_cn", "garmin_intl"]
+    if sports:
+        sports = tuple(sports)
+        sql = sql.replace(
+            "WHERE g.source IN (?, ?)",
+            "WHERE g.source IN (?, ?) AND "
+            f"c.sport IN ({','.join('?' for _ in sports)})",
+        )
+        params.extend(sports)
+    rows = con.execute(sql, params).fetchall()
     con.close()
     return [dict(row) for row in rows if row["target"] in targets]
 
@@ -88,7 +96,11 @@ def main(argv=None):
     parser.add_argument("--end", help="YYYY-MM-DD，本地日期；默认今天")
     parser.add_argument("--years", type=int, default=10)
     parser.add_argument("--targets", default=",".join(TARGETS))
+    parser.add_argument(
+        "--sports", help="只修正这些 COROS 类型，逗号分隔，例如 stair_climb"
+    )
     parser.add_argument("--delay", type=float, default=0.25)
+    parser.add_argument("--retries", type=int, default=3)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
@@ -101,7 +113,10 @@ def main(argv=None):
 
     try:
         start, end = window(args)
-        candidates = load_candidates(start, end, targets)
+        sports = tuple(
+            item.strip() for item in args.sports.split(",") if item.strip()
+        ) if args.sports else None
+        candidates = load_candidates(start, end, targets, sports)
     except (FileNotFoundError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -112,7 +127,7 @@ def main(argv=None):
         for row in candidates[:20]:
             print(
                 f"  {row['group_id']} {row['target']}:{row['target_id']} "
-                f"{row['canonical_sport']} -> {manual_type(row['canonical_sport'])}"
+                        f"{row['canonical_sport']} -> {manual_type(row['canonical_sport'])}"
             )
         return 0
 
@@ -137,13 +152,21 @@ def main(argv=None):
                 skipped += 1
                 continue
             type_id, parent_type_id = indexes[target][target_key]
-            clients[target].set_activity_type(
-                row["target_id"], type_id, target_key, parent_type_id
-            )
+            for attempt in range(1, args.retries + 1):
+                try:
+                    clients[target].set_activity_type(
+                        row["target_id"], type_id, target_key, parent_type_id
+                    )
+                    break
+                except Exception:
+                    if attempt == args.retries:
+                        raise
+                    time.sleep(min(30, 5 * attempt))
             ok += 1
             print(
                 f"[{index}/{len(candidates)}] {target}:{row['target_id']} "
-                f"{current} -> {target_key}"
+                f"{current} -> {target_key}",
+                flush=True,
             )
             time.sleep(args.delay)
         except Exception as exc:
@@ -151,6 +174,7 @@ def main(argv=None):
             print(
                 f"[{index}/{len(candidates)}] FAIL {target}:{row['target_id']}: {exc}",
                 file=sys.stderr,
+                flush=True,
             )
             time.sleep(args.delay * 2)
 
