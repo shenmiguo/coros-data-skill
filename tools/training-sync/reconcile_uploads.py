@@ -38,8 +38,8 @@ WITH representatives AS (
   SELECT group_id, min(source_id) AS source_id
   FROM source_activities
   WHERE source = 'coros'
-    AND date(start_utc) >= date(?)
-    AND date(start_utc) <= date(?)
+    AND date(start_utc, 'localtime') >= date(?)
+    AND date(start_utc, 'localtime') <= date(?)
   GROUP BY group_id
 )
 SELECT c.source_id, c.sport, c.raw_sport, c.start_utc, c.duration_s,
@@ -63,6 +63,7 @@ MANUAL_TYPES = {
     "strength": "strength_training",
     "cardio": "indoor_cardio",
     "jump_rope": "jump_rope",
+    "mountaineering": "mountaineering",
     "multisport": "multi_sport",
 }
 

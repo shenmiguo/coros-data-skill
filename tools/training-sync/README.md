@@ -14,6 +14,7 @@ Garmin 走社区库 `garminconnect`（`is_cn=True/False` 切换国行/国际）�
   Garmin 国行和 Garmin 国际；
 - `download_coros_history.mjs`：一次登录后批量下载并缓存 COROS 原始 FIT；
 - `reconcile_coros_import.py`：对已提交但部分失败的 COROS ZIP 导入做现场核对和补记账；
+- `fix_garmin_types.py`：按同组 COROS 运动类型修正 Garmin 导入误归为 other 的活动；
 - `cleanup_coros_duplicates.py`：审计并清理本工具造成的 COROS 重复活动；
 - `import_to_coros.mjs` / `delete_coros_activities.mjs`：底层网页接口工具，不建议手动直接调用。
 
@@ -145,6 +146,19 @@ tools/training-sync/.venv/bin/python tools/training-sync/push_coros_history.py \
 
 原始 FIT 缓存在 `data/coros_originals/`，文件名包含 COROS `start_utc` 和
 `source_id`。命令完成后重新运行 `sync.py` 才会把新的目标端副本合并进本地库。
+
+## Garmin 类型修正
+
+如果 Garmin 在导入 COROS GPX 备份时把活动归为 other，可先按合并库预演：
+
+```bash
+tools/training-sync/.venv/bin/python tools/training-sync/fix_garmin_types.py \
+  --start 2026-08-11 --end 2026-11-14 --dry-run
+```
+
+确认候选后去掉 `--dry-run`。工具只处理“Garmin 当前仍是 other、同组 COROS 有明确
+canonical 类型”的记录，并用 Garmin 活动类型表解析 `typeId`。执行后重新运行
+`sync.py` 刷新本地 `raw_sport`。
 
 COROS 没有公开的上传 API。`import_to_coros.mjs` 复用了 COROS 网页当前的
 STS -> 阿里云 OSS -> `/activity/fit/import` 流程，按 ZIP 批量导入并轮询任务状态。

@@ -39,8 +39,8 @@ SELECT c.source_id, c.sport, c.raw_sport, c.start_utc, c.duration_s,
        ) AS intl_present
 FROM source_activities c
 WHERE c.source = 'coros'
-  AND date(c.start_utc) >= date(?)
-  AND date(c.start_utc) <= date(?)
+  AND date(c.start_utc, 'localtime') >= date(?)
+  AND date(c.start_utc, 'localtime') <= date(?)
 ORDER BY c.start_utc DESC
 """
 
